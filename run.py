@@ -5,6 +5,7 @@ import os
 import time
 from config_manager import EnhancedConfigManager
 from config_ui import ConfigUI
+from version import get_version, get_version_info
 
 # Try to import optional dependencies
 try:
@@ -321,9 +322,12 @@ default_idea, default_style = get_default_values()
 available_providers, current_provider = get_available_providers()
 available_models = get_models_for_current_provider()
 
-app_title = "🎭 StoryGenius：AI智能小说创作平台"
-app_description = """
+version_info = get_version_info()
+app_title = f"🎭 StoryGenius：AI智能小说创作平台 v{get_version()}"
+app_description = f"""
 ### 🌟 欢迎使用StoryGenius AI小说创作平台
+
+**版本**: {version_info['version']} ({version_info['codename']}) | **发布日期**: {version_info['release_date']}
 
 支持7个AI提供商：**DeepSeek** | **阿里云** | **智谱AI** | **Google Gemini** | **OpenRouter** | **LM Studio** | **Claude**
 
