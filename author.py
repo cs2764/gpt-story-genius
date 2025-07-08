@@ -70,7 +70,7 @@ def create_cover_image(plot):
         return file_path
 
 
-def create_epub(title, author, chapters, cover_image_path='cover.png'):
+def create_epub(title, author, chapters, cover_image_path=None):
     book = epub.EpubBook()
 
     # Set metadata
@@ -79,10 +79,11 @@ def create_epub(title, author, chapters, cover_image_path='cover.png'):
     book.set_language('zh-cn')
     book.add_author(author)
 
-    # Add cover image
-    with open(cover_image_path, 'rb') as cover_file:
-        cover_image = cover_file.read()
-    book.set_cover('cover.png', cover_image)
+    # Add cover image only if provided
+    if cover_image_path and os.path.exists(cover_image_path):
+        with open(cover_image_path, 'rb') as cover_file:
+            cover_image = cover_file.read()
+        book.set_cover('cover.png', cover_image)
 
     # Create chapters and add them to the book
     epub_chapters = []
@@ -137,8 +138,43 @@ def create_epub(title, author, chapters, cover_image_path='cover.png'):
     if not os.path.exists(directory):
         os.makedirs(directory)
 
+    # 清理文件名，确保路径安全
+    safe_title = sanitize_filename_for_epub(title)
+    
     # 保存 EPUB 文件
-    file_path = f"./epub/{title}.epub"  # 修改为您想要的文件路径
+    file_path = f"./epub/{safe_title}.epub"  # 修改为您想要的文件路径
     epub.write_epub(file_path, book)
 
     return file_path
+
+
+def sanitize_filename_for_epub(filename):
+    """清理EPUB文件名，移除不安全字符"""
+    import re
+    
+    if not filename:
+        return "未命名小说"
+    
+    # 移除思考标签
+    filename = re.sub(r'<think>.*?</think>', '', filename, flags=re.DOTALL)
+    filename = re.sub(r'<\\think>', '', filename)
+    filename = re.sub(r'<[^>]+>', '', filename)
+    
+    # 移除引号、书名号等
+    filename = re.sub(r'["""''《》【】\\[\\]<>]', '', filename)
+    
+    # 移除或替换Windows文件名不允许的字符
+    filename = re.sub(r'[\\/:*?"<>|]', '_', filename)
+    
+    # 移除多余的空格和换行
+    filename = re.sub(r'\s+', ' ', filename).strip()
+    
+    # 限制长度（防止路径过长）
+    if len(filename) > 50:
+        filename = filename[:50].strip()
+    
+    # 如果清理后为空，提供默认名称
+    if not filename or filename.isspace():
+        filename = "未命名小说"
+    
+    return filename

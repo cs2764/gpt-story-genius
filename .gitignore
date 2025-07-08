@@ -1,0 +1,140 @@
+# StoryGenius - 项目忽略文件配置
+
+# 配置文件和敏感信息
+.env
+config/
+provider_config.json
+monitoring_data.json
+default_ideas.json
+system_config.json
+
+# 临时文件
+*.tmp
+*.temp
+temp/
+tmp/
+
+# 日志文件
+*.log
+logs/
+log.txt
+
+# Python 编译文件
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# 虚拟环境
+venv/
+env/
+ENV/
+.venv/
+.env/
+
+# 项目虚拟环境
+./venv/
+
+# IDE 和编辑器
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# 小说生成文件
+story/
+novels/
+books/
+*.epub
+*.pdf
+
+# 图片缓存
+*.png
+*.jpg
+*.jpeg
+cover_images/
+
+# 备份文件
+backup/
+*.backup
+*_backup.json
+environment_backup_*.yml
+config_backup_*.json
+
+# 测试文件
+test_output/
+test_results/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# 系统文件
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Windows
+*.bat.lnk
+*.cmd.lnk
+
+# macOS
+.AppleDouble
+.LSOverride
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# API 密钥和敏感数据
+*.key
+*.pem
+*.crt
+api_keys.txt
+secrets.json
+
+# 模型文件（如果使用本地模型）
+models/
+*.bin
+*.safetensors
+*.gguf
+
+# 数据库文件
+*.db
+*.sqlite
+*.sqlite3
+
+# 缓存目录
+.cache/
+cache/
+__temp__/
