@@ -1,5 +1,9 @@
 # API调用问题修复报告
 
+> **项目声明**  
+> 本项目是对 [https://github.com/Crossme0809/gpt-story-genius](https://github.com/Crossme0809/gpt-story-genius) 的二次开发  
+> 🤖 所有代码以及文档均由 Claude Code 生成
+
 ## 🎯 修复的问题
 
 ### 1. LM Studio模型选择不正确的问题

@@ -1,5 +1,9 @@
 # 🔄 虚拟环境架构更新说明
 
+> **项目声明**  
+> 本项目是对 [https://github.com/Crossme0809/gpt-story-genius](https://github.com/Crossme0809/gpt-story-genius) 的二次开发  
+> 🤖 所有代码以及文档均由 Claude Code 生成
+
 ## 📌 更新概述
 
 根据您的建议，我们已经将虚拟环境设置从全局conda环境改为项目本地虚拟环境，这样更符合Python项目的最佳实践。

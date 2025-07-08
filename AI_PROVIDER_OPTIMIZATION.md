@@ -1,5 +1,9 @@
 # AI提供商设置逻辑优化
 
+> **项目声明**  
+> 本项目是对 [https://github.com/Crossme0809/gpt-story-genius](https://github.com/Crossme0809/gpt-story-genius) 的二次开发  
+> 🤖 所有代码以及文档均由 Claude Code 生成
+
 ## 🎯 优化目标
 
 1. **移除不必要的切换提供商按钮**：简化配置界面的用户体验

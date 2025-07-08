@@ -1,5 +1,9 @@
 # 🎭 StoryGenius AI小说创作平台 - 升级完成总结
 
+> **项目声明**  
+> 本项目是对 [https://github.com/Crossme0809/gpt-story-genius](https://github.com/Crossme0809/gpt-story-genius) 的二次开发  
+> 🤖 所有代码以及文档均由 Claude Code 生成
+
 ## 🎉 升级概述
 
 StoryGenius AI小说创作平台已完成全面升级，从单一AI提供商支持升级为支持7个主流AI提供商的智能创作平台，具备完整的配置管理、监控调试和跨平台部署能力。

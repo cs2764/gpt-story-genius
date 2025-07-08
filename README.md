@@ -1,9 +1,14 @@
-<h1 align="center">● gpt-story-genius</h1>
+<h1 align="center">🎭 StoryGenius：AI智能小说创作平台</h1>
+
+> **项目声明**  
+> 本项目是对 [https://github.com/Crossme0809/gpt-story-genius](https://github.com/Crossme0809/gpt-story-genius) 的二次开发  
+> 🤖 所有代码以及文档均由 Claude Code 生成
 
 <p align="center">
     <br>
-    <b>StoryGenius：一款AI自动创作小说工具。</b><br><br>
-    根据小说的提示词、写作风格和章节数量几分钟即可快速生成奇幻小说。并自动打包为电子书格式。<br>
+    <b>StoryGenius：多AI提供商智能小说创作平台</b><br><br>
+    支持7个AI提供商，根据小说的提示词、写作风格和章节数量快速生成奇幻小说。<br>
+    具备实时进度显示、成本监控、配置管理等企业级功能。<br>
 </p>
 <br>
 
