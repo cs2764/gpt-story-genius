@@ -78,5 +78,59 @@ def save_novel_chapter(novel_id, chapter_index, file_name, file_content):
 
     # 写入章节内容到文件
     file_path = os.path.join(chapter_folder, f"{file_name}.txt")
-    with open(file_path, "w") as file:
+    with open(file_path, "w", encoding="utf-8") as file:
         file.write(file_content)
+
+
+# 保存章节摘要
+def save_chapter_summary(novel_id, chapter_index, summary_content):
+    """保存章节摘要到文件"""
+    # 创建章节文件目录
+    chapter_folder = os.path.join(os.getcwd(), f"story/{novel_id}/chapter_{chapter_index + 1}")
+    if not os.path.exists(chapter_folder):
+        os.makedirs(chapter_folder)
+
+    # 写入摘要到文件
+    summary_path = os.path.join(chapter_folder, "summary.txt")
+    with open(summary_path, "w", encoding="utf-8") as file:
+        file.write(summary_content)
+
+
+# 读取章节摘要
+def load_chapter_summary(novel_id, chapter_index):
+    """从文件读取章节摘要"""
+    chapter_folder = os.path.join(os.getcwd(), f"story/{novel_id}/chapter_{chapter_index + 1}")
+    summary_path = os.path.join(chapter_folder, "summary.txt")
+    
+    if os.path.exists(summary_path):
+        with open(summary_path, "r", encoding="utf-8") as file:
+            return file.read()
+    return None
+
+
+# 读取章节内容
+def load_chapter_content(novel_id, chapter_index):
+    """从文件读取章节内容"""
+    chapter_folder = os.path.join(os.getcwd(), f"story/{novel_id}/chapter_{chapter_index + 1}")
+    
+    # 查找章节文件
+    if os.path.exists(chapter_folder):
+        for file in os.listdir(chapter_folder):
+            if file.endswith('.txt') and file != 'summary.txt':
+                file_path = os.path.join(chapter_folder, file)
+                try:
+                    with open(file_path, "r", encoding="utf-8") as f:
+                        return f.read()
+                except UnicodeDecodeError:
+                    # 如果UTF-8解码失败，尝试其他编码
+                    try:
+                        with open(file_path, "r", encoding="gbk") as f:
+                            return f.read()
+                    except UnicodeDecodeError:
+                        try:
+                            with open(file_path, "r", encoding="latin-1") as f:
+                                return f.read()
+                        except Exception:
+                            # 如果所有编码都失败，返回空内容
+                            return ""
+    return None

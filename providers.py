@@ -20,6 +20,7 @@ class ProviderConfig:
     models: List[str] = None
     system_prompt: str = ""
     enabled: bool = True
+    default_model: str = ""
     
     def __post_init__(self):
         if self.models is None:
@@ -675,7 +676,8 @@ class ProviderManager:
                     'connected': is_connected,
                     'models_count': len(models),
                     'api_key_set': bool(provider.config.api_key),
-                    'enabled': provider.config.enabled
+                    'enabled': provider.config.enabled,
+                    'default_model': provider.config.default_model
                 }
             except Exception as e:
                 status[name] = {
@@ -683,6 +685,39 @@ class ProviderManager:
                     'models_count': 0,
                     'api_key_set': bool(provider.config.api_key),
                     'enabled': False,
-                    'error': str(e)
+                    'error': str(e),
+                    'default_model': provider.config.default_model
                 }
         return status
+    
+    def set_default_model(self, provider_name: str, model_name: str):
+        """设置提供商的默认模型"""
+        if provider_name in self.providers:
+            provider = self.providers[provider_name]
+            models = provider.get_models()
+            if model_name in models:
+                provider.config.default_model = model_name
+                self.save_config()
+                logger.info(f"设置 {provider_name} 默认模型为: {model_name}")
+            else:
+                raise ValueError(f"模型 '{model_name}' 在提供商 '{provider_name}' 中不存在")
+        else:
+            raise ValueError(f"提供商 '{provider_name}' 不存在")
+    
+    def get_default_model(self, provider_name: str) -> str:
+        """获取提供商的默认模型"""
+        if provider_name in self.providers:
+            provider = self.providers[provider_name]
+            default_model = provider.config.default_model
+            if default_model:
+                models = provider.get_models()
+                if default_model in models:
+                    return default_model
+                else:
+                    # 如果默认模型不存在，返回第一个可用模型
+                    if models:
+                        return models[0]
+            # 如果没有设置默认模型，返回第一个可用模型
+            models = provider.get_models()
+            return models[0] if models else ""
+        return ""

@@ -3,6 +3,7 @@ import gradio as gr
 import logging
 import os
 import time
+import datetime
 from config_manager import EnhancedConfigManager
 from config_ui import ConfigUI
 from version import get_version, get_version_info
@@ -45,6 +46,320 @@ def check_providers():
     available_providers = [name for name, data in status.items() if data.get('api_key_set', False)]
     return len(available_providers) > 0
 
+def save_novel_to_output(title, chapters, chapter_titles, provider_name, model_name, total_words, novel_id):
+    """保存完整小说到output文件夹"""
+    try:
+        # 创建output文件夹
+        output_dir = os.path.join(os.getcwd(), "output")
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+            logger.info(f"📁 创建输出目录: {output_dir}")
+        
+        # 生成文件名（使用时间戳避免重名）
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_title = title.replace(" ", "_").replace("/", "_").replace("\\", "_")
+        filename = f"{safe_title}_{timestamp}.txt"
+        filepath = os.path.join(output_dir, filename)
+        
+        # 构建完整小说内容
+        novel_content = f"""
+===============================================================================
+                            {title}
+===============================================================================
+
+📚 小说信息:
+• 标题: {title}
+• 章节数: {len(chapters)}
+• 总字数: {total_words:,}字
+• 平均每章: {total_words//len(chapters):,}字
+• 创作时间: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+• AI提供商: {provider_name}
+• 使用模型: {model_name}
+• 小说ID: {novel_id}
+
+===============================================================================
+                                目录
+===============================================================================
+
+"""
+        
+        # 添加目录
+        for i, chapter_title_dict in enumerate(chapter_titles):
+            chapter_title = list(chapter_title_dict.keys())[0]
+            novel_content += f"第{i+1}章: {chapter_title}\n"
+        
+        novel_content += "\n"
+        
+        # 添加章节内容
+        for i, chapter in enumerate(chapters):
+            chapter_title = list(chapter_titles[i].keys())[0]
+            chapter_content = chapter
+            
+            novel_content += f"""
+===============================================================================
+                            {chapter_title}
+===============================================================================
+
+{chapter_content}
+
+"""
+        
+        # 添加结尾信息
+        novel_content += f"""
+===============================================================================
+                              创作完成
+===============================================================================
+
+📊 创作统计:
+• 完成时间: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+• 总字数: {total_words:,}字
+• 章节数: {len(chapters)}章
+• AI提供商: {provider_name}
+• 使用模型: {model_name}
+
+感谢使用 StoryGenius AI 小说创作平台!
+项目地址: https://github.com/Crossme0809/gpt-story-genius
+"""
+        
+        # 保存文件
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(novel_content)
+        
+        logger.info(f"📄 小说已保存到: {filepath}")
+        logger.info(f"📊 保存文件大小: {os.path.getsize(filepath)} 字节")
+        
+        # 创建章节文件夹并保存各章节
+        chapters_dir = os.path.join(output_dir, f"{safe_title}_{timestamp}_chapters")
+        os.makedirs(chapters_dir, exist_ok=True)
+        
+        chapter_files = []
+        for i, chapter in enumerate(chapters):
+            chapter_title = list(chapter_titles[i].keys())[0]
+            safe_chapter_title = chapter_title.replace(" ", "_").replace("/", "_").replace("\\", "_")
+            chapter_filename = f"第{i+1:02d}章_{safe_chapter_title}.txt"
+            chapter_filepath = os.path.join(chapters_dir, chapter_filename)
+            
+            chapter_content = f"""
+{chapter_title}
+
+{chapter}
+
+---
+字数: {len(chapter)}字
+创作时间: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+"""
+            
+            with open(chapter_filepath, 'w', encoding='utf-8') as f:
+                f.write(chapter_content)
+            
+            chapter_files.append(chapter_filename)
+        
+        logger.info(f"📁 章节文件已保存到: {chapters_dir}")
+        
+        # 同时保存一个JSON元数据文件
+        metadata_filename = f"{safe_title}_{timestamp}_metadata.json"
+        metadata_filepath = os.path.join(output_dir, metadata_filename)
+        
+        import json
+        metadata = {
+            "title": title,
+            "chapters": len(chapters),
+            "total_words": total_words,
+            "average_words_per_chapter": total_words // len(chapters),
+            "created_time": datetime.datetime.now().isoformat(),
+            "provider": provider_name,
+            "model": model_name,
+            "novel_id": novel_id,
+            "chapter_titles": [list(ct.keys())[0] for ct in chapter_titles],
+            "text_file": filename,
+            "chapters_directory": f"{safe_title}_{timestamp}_chapters",
+            "chapter_files": chapter_files,
+            "generated_by": "StoryGenius AI",
+            "version": get_version()
+        }
+        
+        with open(metadata_filepath, 'w', encoding='utf-8') as f:
+            json.dump(metadata, f, ensure_ascii=False, indent=2)
+        
+        logger.info(f"📋 元数据已保存到: {metadata_filepath}")
+        
+        return filepath
+        
+    except Exception as e:
+        logger.error(f"❌ 保存小说到输出文件夹失败: {e}")
+        return None
+
+def save_generation_process(generation_log, safe_title, timestamp):
+    """保存生成过程到文件"""
+    try:
+        output_dir = os.path.join(os.getcwd(), "output")
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+        
+        # 保存为Markdown格式
+        md_filename = f"{safe_title}_{timestamp}_生成过程.md"
+        md_filepath = os.path.join(output_dir, md_filename)
+        
+        # 构建Markdown内容
+        md_content = f"""# 📝 小说生成过程记录
+
+## 📊 基本信息
+- **开始时间**: {generation_log['start_time']}
+- **用户提示**: {generation_log['user_prompt']}
+- **章节数**: {generation_log['num_chapters']}
+- **写作风格**: {generation_log['writing_style']}
+- **AI提供商**: {generation_log['provider']}
+- **使用模型**: {generation_log['model']}
+
+---
+
+## 🎭 情节生成阶段
+
+### 📝 候选情节
+"""
+        
+        for i, plot in enumerate(generation_log['plots']):
+            if plot.strip():
+                md_content += f"{i+1}. {plot.strip()}\n\n"
+        
+        if generation_log['selected_plot']:
+            md_content += f"""
+### ✅ 选定情节
+{generation_log['selected_plot']}
+
+"""
+        
+        if generation_log['improved_plot']:
+            md_content += f"""
+### 🔄 优化后情节
+{generation_log['improved_plot']}
+
+"""
+        
+        if generation_log['title']:
+            md_content += f"""
+---
+
+## 📖 小说标题
+**{generation_log['title']}**
+
+"""
+        
+        if generation_log['storyline']:
+            md_content += f"""
+---
+
+## 📋 故事线
+```json
+{generation_log['storyline']}
+```
+
+"""
+        
+        # 章节生成过程
+        if generation_log['chapters']:
+            md_content += """
+---
+
+## 📚 章节生成过程
+
+"""
+            for chapter_info in generation_log['chapters']:
+                md_content += f"""
+### {chapter_info['title']}
+- **生成时间**: {chapter_info['timestamp']}
+- **字数**: {chapter_info['word_count']:,}字
+- **Token消耗**: {chapter_info.get('tokens', 0):,}
+- **生成时长**: {chapter_info.get('duration', 0):.2f}秒
+
+"""
+                if chapter_info.get('content_preview'):
+                    md_content += f"""
+**内容预览**:
+{chapter_info['content_preview']}...
+
+"""
+        
+        # 章节摘要
+        if generation_log['summaries']:
+            md_content += """
+---
+
+## 📄 章节摘要
+
+"""
+            for i, summary in enumerate(generation_log['summaries']):
+                md_content += f"""
+### 第{i+1}章摘要
+{summary}
+
+"""
+        
+        # 生成步骤记录
+        if generation_log['steps']:
+            md_content += """
+---
+
+## 🔄 详细步骤记录
+
+"""
+            for step in generation_log['steps']:
+                md_content += f"""
+### {step['step_name']}
+- **时间**: {step['timestamp']}
+- **描述**: {step.get('description', '')}
+- **耗时**: {step.get('duration', 0):.2f}秒
+
+"""
+        
+        md_content += f"""
+---
+
+## 📊 生成完成
+- **完成时间**: {datetime.datetime.now().isoformat()}
+- **总耗时**: {(datetime.datetime.now() - datetime.datetime.fromisoformat(generation_log['start_time'])).total_seconds():.2f}秒
+- **生成工具**: StoryGenius AI v{get_version()}
+"""
+        
+        # 保存文件
+        with open(md_filepath, 'w', encoding='utf-8') as f:
+            f.write(md_content)
+        
+        logger.info(f"📋 生成过程已保存到: {md_filepath}")
+        return md_filepath
+        
+    except Exception as e:
+        logger.error(f"❌ 保存生成过程失败: {e}")
+        return None
+
+def update_generation_log(generation_log, step_name, **kwargs):
+    """更新生成过程记录"""
+    step_record = {
+        "step_name": step_name,
+        "timestamp": datetime.datetime.now().isoformat(),
+        "description": kwargs.get('description', ''),
+        "duration": kwargs.get('duration', 0)
+    }
+    generation_log['steps'].append(step_record)
+    
+    # 根据步骤类型更新相应字段
+    if 'plots' in kwargs:
+        generation_log['plots'] = kwargs['plots']
+    if 'selected_plot' in kwargs:
+        generation_log['selected_plot'] = kwargs['selected_plot']
+    if 'improved_plot' in kwargs:
+        generation_log['improved_plot'] = kwargs['improved_plot']
+    if 'title' in kwargs:
+        generation_log['title'] = kwargs['title']
+    if 'storyline' in kwargs:
+        generation_log['storyline'] = kwargs['storyline']
+    if 'chapter_info' in kwargs:
+        generation_log['chapters'].append(kwargs['chapter_info'])
+    if 'summary' in kwargs:
+        generation_log['summaries'].append(kwargs['summary'])
+    
+    return generation_log
+
 
 def generate_novel(prompt, num_chapters, writing_style, provider_name, model_name):
     # 调用GPT和Claude API，生成小说结果
@@ -77,7 +392,7 @@ def generate_novel(prompt, num_chapters, writing_style, provider_name, model_nam
     
     # 使用增强的小说创作器
     writer = StoryWriter()
-    _, title, chapters, chapter_titles = writer.write_fantasy_novel(
+    _, title, chapters, chapter_titles, chapter_tokens_list = writer.write_fantasy_novel(
         prompt, num_chapters, writing_style, provider_key, model_name
     )
 
@@ -98,7 +413,7 @@ def generate_novel(prompt, num_chapters, writing_style, provider_name, model_nam
     return { "image_url": image_url, "file_url": file_url }
 
 
-def generate_output_with_progress(prompt, num_chapters, writing_style, provider_name, model_name, progress=gr.Progress()):
+def generate_output_with_progress(prompt, num_chapters, writing_style, provider_name, model_name):
     """带进度显示的小说生成函数"""
     try:
         # 验证输入
@@ -125,20 +440,37 @@ def generate_output_with_progress(prompt, num_chapters, writing_style, provider_
         }
         provider_key = provider_map.get(provider_name, provider_name.lower())
         
-        # 生成阶段进度计算
-        total_steps = 5 + num_chapters  # 情节生成、选择、改进、标题、故事线 + 各章节
+        # 生成阶段进度计算（增加摘要生成步骤和文件保存步骤）
+        total_steps = 5 + num_chapters + (num_chapters - 1) + 2  # 情节生成、选择、改进、标题、故事线 + 各章节 + 摘要生成（除最后一章）+ EPUB生成 + 文本保存
         current_step = 0
         current_words = 0
         
+        # 创建生成过程记录
+        generation_log = {
+            "start_time": datetime.datetime.now().isoformat(),
+            "user_prompt": prompt,
+            "num_chapters": num_chapters,
+            "writing_style": writing_style,
+            "provider": provider_name,
+            "model": model_name,
+            "steps": [],
+            "plots": [],
+            "selected_plot": "",
+            "improved_plot": "",
+            "title": "",
+            "storyline": "",
+            "chapters": [],
+            "summaries": []
+        }
+        
         # 定义进度回调函数
-        def progress_callback(step_name, step_desc="", chapter_completed=None, chapter_content=""):
+        def progress_callback(step_name, step_desc="", chapter_completed=None, chapter_content="", token_info=None, generation_info=None):
             nonlocal current_step, current_words
             current_step += 1
             if chapter_content:
                 current_words += len(str(chapter_content))
             
             progress_percent = int((current_step / total_steps) * 100)
-            progress(current_step / total_steps, desc=step_name)
             
             stats = {
                 "已生成章节": chapter_completed if chapter_completed is not None else 0,
@@ -147,14 +479,96 @@ def generate_output_with_progress(prompt, num_chapters, writing_style, provider_
                 "当前字数": current_words
             }
             
+            # 构建详细的生成状态信息
+            detailed_status = f"🔄 {step_name}\n\n"
+            
+            # 创建文字进度条
+            progress_bar_length = 20
+            filled_length = int(progress_bar_length * progress_percent / 100)
+            progress_bar = "█" * filled_length + "░" * (progress_bar_length - filled_length)
+            detailed_status += f"📊 总体进度: {progress_percent}% [{progress_bar}]\n"
+            detailed_status += f"📈 步骤进度: {current_step}/{total_steps} 步骤\n"
+            
+            # 章节进度条
+            if num_chapters > 0:
+                chapter_progress_percent = int((chapter_completed if chapter_completed is not None else 0) / num_chapters * 100)
+                chapter_filled = int(progress_bar_length * chapter_progress_percent / 100)
+                chapter_progress_bar = "█" * chapter_filled + "░" * (progress_bar_length - chapter_filled)
+                detailed_status += f"📚 章节进度: {chapter_progress_percent}% [{chapter_progress_bar}]\n"
+                detailed_status += f"📖 章节状态: {chapter_completed if chapter_completed is not None else 0}/{num_chapters} 章\n"
+            
+            detailed_status += f"🔢 字数统计: {current_words:,}字\n"
+            detailed_status += f"💡 当前步骤: {step_name}\n"
+            
+            if step_desc:
+                detailed_status += f"📋 步骤描述: {step_desc}\n"
+            
+            if token_info:
+                detailed_status += f"\n🔢 Token统计:\n"
+                detailed_status += f"  • 输入Token: {token_info.get('input_tokens', 0):,}\n"
+                detailed_status += f"  • 输出Token: {token_info.get('output_tokens', 0):,}\n"
+                detailed_status += f"  • 总Token: {token_info.get('total_tokens', 0):,}\n"
+            
+            # 添加生成过程信息
+            if generation_info:
+                detailed_status += f"\n📋 生成信息:\n"
+                if 'plots_count' in generation_info:
+                    detailed_status += f"  • 候选情节数: {generation_info['plots_count']}\n"
+                if 'title' in generation_info:
+                    detailed_status += f"  • 小说标题: {generation_info['title']}\n"
+                if 'storyline_ready' in generation_info:
+                    detailed_status += f"  • 故事线: {'已生成' if generation_info['storyline_ready'] else '生成中'}\n"
+            
+            # 构建章节完成情况
+            if chapter_completed is not None and chapter_completed > 0:
+                chapter_info = f"📖 已完成章节: {chapter_completed}/{num_chapters}\n\n"
+                chapter_info += f"✅ 第{chapter_completed}章创作完成\n"
+                if chapter_content:
+                    chapter_preview = str(chapter_content)[:200] + "..." if len(str(chapter_content)) > 200 else str(chapter_content)
+                    chapter_info += f"📝 内容预览:\n{chapter_preview}\n\n"
+                    chapter_info += f"📊 本章字数: {len(str(chapter_content))}字\n"
+                
+                if token_info:
+                    chapter_info += f"🔢 本章Token消耗: {token_info.get('total_tokens', 0):,}\n"
+                
+                # 如果有多个章节，显示总体进度
+                if chapter_completed > 1:
+                    chapter_info += f"\n📈 总体进度: {(chapter_completed/num_chapters)*100:.1f}%"
+            else:
+                chapter_info = f"📖 准备开始章节创作...\n\n"
+                chapter_info += f"📋 计划章节数: {num_chapters}\n"
+                chapter_info += f"📝 当前阶段: {step_name}"
+            
+            # 简化的日志信息
             log_msg = f"📝 {step_name}"
             if chapter_completed is not None:
                 log_msg += f" - 已完成第{chapter_completed}章"
+                if token_info:
+                    log_msg += f" (Token: {token_info.get('total_tokens', 0):,})"
             
-            return (step_name, step_desc, stats, "生成中...", log_msg, None, None)
+            # 构建生成过程显示信息
+            process_info = f"🔍 生成过程追踪\n\n"
+            process_info += f"📊 当前步骤: {step_name}\n"
+            process_info += f"⏰ 时间: {datetime.datetime.now().strftime('%H:%M:%S')}\n\n"
+            
+            if generation_log['plots']:
+                process_info += f"🎭 候选情节: {len(generation_log['plots'])}个\n"
+            if generation_log['selected_plot']:
+                process_info += f"✅ 选定情节: {generation_log['selected_plot'][:50]}...\n"
+            if generation_log['title']:
+                process_info += f"📖 小说标题: {generation_log['title']}\n"
+            if generation_log['chapters']:
+                process_info += f"📚 已完成章节: {len(generation_log['chapters'])}/{num_chapters}\n"
+            if generation_log['summaries']:
+                process_info += f"📄 生成摘要: {len(generation_log['summaries'])}个\n"
+            
+            return (detailed_status, chapter_info, stats, log_msg, process_info, None, None)
         
         # 初始状态
-        yield ("初始化中...", "准备开始生成", {"已生成章节": 0, "预计总章节": num_chapters, "生成进度": "0%", "当前字数": 0}, "开始生成", "🚀 开始创作小说", None, None)
+        initial_detailed_status = f"🔄 初始化中...\n\n📊 当前进度: 0% (0/{total_steps})\n📚 章节状态: 0/{num_chapters}\n🔢 字数统计: 0字\n💡 当前步骤: 准备开始\n📋 步骤描述: 正在初始化小说创作系统"
+        initial_chapter_info = f"📖 准备开始章节创作...\n\n📋 计划章节数: {num_chapters}\n📝 当前阶段: 系统初始化\n🎯 提供商: {provider_name}\n🤖 模型: {model_name}"
+        initial_process_info = f"🔍 生成过程追踪\n\n📊 当前步骤: 初始化\n⏰ 时间: {datetime.datetime.now().strftime('%H:%M:%S')}\n\n📋 即将开始小说创作过程..."
+        yield (initial_detailed_status, initial_chapter_info, {"已生成章节": 0, "预计总章节": num_chapters, "生成进度": "0%", "当前字数": 0}, "🚀 开始创作小说", initial_process_info, None, None)
         
         # 使用增强的小说创作器
         writer = StoryWriter()
@@ -175,17 +589,37 @@ def generate_output_with_progress(prompt, num_chapters, writing_style, provider_
         yield progress_callback("生成情节", "正在生成多个候选情节")
         plots = writer.generate_plots(prompt)
         
+        # 更新生成日志
+        update_generation_log(generation_log, "生成情节", description="生成多个候选情节", plots=plots)
+        logger.info(f"🎭 成功生成 {len(plots)} 个候选情节")
+        
         yield progress_callback("选择最佳情节", "从候选情节中选择最优方案")
         best_plot = writer.select_most_engaging(plots)
+        
+        # 更新生成日志
+        update_generation_log(generation_log, "选择最佳情节", description="从候选情节中选择最优方案", selected_plot=best_plot)
+        logger.info(f"✅ 已选择最佳情节: {best_plot[:100]}...")
         
         yield progress_callback("优化情节", "进一步完善和优化情节")
         improved_plot = writer.improve_plot(best_plot)
         
+        # 更新生成日志
+        update_generation_log(generation_log, "优化情节", description="进一步完善和优化情节", improved_plot=improved_plot)
+        logger.info(f"🔄 情节优化完成: {improved_plot[:100]}...")
+        
         yield progress_callback("生成标题", "为小说生成吸引人的标题")
         title = writer.get_title(improved_plot)
         
+        # 更新生成日志
+        update_generation_log(generation_log, "生成标题", description="为小说生成吸引人的标题", title=title)
+        logger.info(f"📖 小说标题已生成: {title}")
+        
         yield progress_callback("生成故事线", "创建详细的章节大纲")
         storyline = writer.generate_storyline(improved_plot, num_chapters)
+        
+        # 更新生成日志
+        update_generation_log(generation_log, "生成故事线", description="创建详细的章节大纲", storyline=storyline)
+        logger.info(f"📋 故事线已生成: {len(storyline)} 字符")
         
         # 解析章节标题
         import ast
@@ -201,29 +635,78 @@ def generate_output_with_progress(prompt, num_chapters, writing_style, provider_
         # 创建章节列表
         chapters = []
         
+        # 生成唯一的小说ID用于Token优化
+        from config import generate_uuid
+        novel_id = generate_uuid()
+        
         # 写第一章
         yield progress_callback("写作第一章", f"正在创作: {list(chapter_titles[0].keys())[0]}")
-        first_chapter = writer.write_first_chapter(storyline, str(chapter_titles[0]), writing_style)
+        first_chapter_start_time = time.time()
+        first_chapter, first_chapter_tokens = writer.write_first_chapter(storyline, str(chapter_titles[0]), writing_style)
+        first_chapter_duration = time.time() - first_chapter_start_time
         chapters.append(first_chapter)
-        yield progress_callback("第一章完成", "第一章创作完成", 1, first_chapter)
         
-        # 写其余章节
-        novel = f"故事线:\n{storyline}\n\n第一章:\n{first_chapter}\n"
+        # 保存第一章和摘要
+        from config import save_novel_chapter, save_chapter_summary
+        first_chapter_title = list(chapter_titles[0])[0]
+        save_novel_chapter(novel_id, 0, first_chapter_title, first_chapter)
+        first_chapter_summary = writer.summarize_chapter(first_chapter, first_chapter_title)
+        save_chapter_summary(novel_id, 0, first_chapter_summary)
         
+        # 更新生成日志
+        chapter_info = {
+            "title": first_chapter_title,
+            "timestamp": datetime.datetime.now().isoformat(),
+            "word_count": len(first_chapter),
+            "tokens": first_chapter_tokens.get('total_tokens', 0),
+            "duration": first_chapter_duration,
+            "content_preview": first_chapter[:200]
+        }
+        update_generation_log(generation_log, "第一章完成", description="第一章创作完成", chapter_info=chapter_info, summary=first_chapter_summary)
+        logger.info(f"📝 第一章《{first_chapter_title}》创作完成，字数: {len(first_chapter)}")
+        
+        yield progress_callback("第一章完成", "第一章创作完成", 1, first_chapter, first_chapter_tokens)
+        
+        # 写其余章节 - 使用Token优化
         for i in range(num_chapters - 1):
+            current_chapter_index = i + 1
             chapter_title = list(chapter_titles[i + 1].keys())[0]
             yield progress_callback(f"写作第{i+2}章", f"正在创作: {chapter_title}")
             
-            chapter = writer.write_chapter(novel, storyline, str(chapter_titles[i + 1]))
+            # 构建优化的上下文
+            optimized_context = writer.build_optimized_context(novel_id, current_chapter_index, recent_chapters_count=2)
+            
+            chapter, chapter_tokens = writer.write_chapter(optimized_context, storyline, str(chapter_titles[i + 1]))
             
             # 检查章节长度
             if len(str(chapter)) < 100:
                 yield progress_callback(f"重写第{i+2}章", "章节长度不足，正在重新生成")
-                chapter = writer.write_chapter(novel, storyline, str(chapter_titles[i + 1]))
+                chapter, chapter_tokens = writer.write_chapter(optimized_context, storyline, str(chapter_titles[i + 1]))
             
             chapters.append(chapter)
-            novel += f"第{i + 2}章:\n{chapter}\n"
-            yield progress_callback(f"第{i+2}章完成", f"第{i+2}章创作完成", i+2, chapter)
+            
+            # 保存章节
+            save_novel_chapter(novel_id, current_chapter_index, chapter_title, chapter)
+            
+            # 生成并保存摘要（除了最后一章）
+            chapter_summary = None
+            if current_chapter_index < num_chapters - 1:
+                chapter_summary = writer.summarize_chapter(chapter, chapter_title)
+                save_chapter_summary(novel_id, current_chapter_index, chapter_summary)
+            
+            # 更新生成日志
+            chapter_info = {
+                "title": chapter_title,
+                "timestamp": datetime.datetime.now().isoformat(),
+                "word_count": len(chapter),
+                "tokens": chapter_tokens.get('total_tokens', 0),
+                "duration": 0,  # 可以添加计时
+                "content_preview": chapter[:200]
+            }
+            update_generation_log(generation_log, f"第{i+2}章完成", description=f"第{i+2}章创作完成", chapter_info=chapter_info, summary=chapter_summary)
+            logger.info(f"📝 第{i+2}章《{chapter_title}》创作完成，字数: {len(chapter)}")
+            
+            yield progress_callback(f"第{i+2}章完成", f"第{i+2}章创作完成", i+2, chapter, chapter_tokens)
 
         # 用chapter_titles中的正文取代章节说明
         for i, chapter in enumerate(chapters):
@@ -234,12 +717,18 @@ def generate_output_with_progress(prompt, num_chapters, writing_style, provider_
         yield progress_callback("生成EPUB文件", "正在创建电子书文件")
         file_url = create_epub(title, 'AI', chapter_titles, cover_image_path=None)
         
-        # 获取成本信息
-        summary = config_manager.get_monitoring_summary(1)  # 最近1小时
-        cost_info = f"总成本: ${summary['total_cost']:.4f} | 调用次数: {summary['total_calls']}"
+        # 保存完整小说到output文件夹
+        yield progress_callback("保存小说文件", "正在保存完整小说到output文件夹")
+        total_words = sum(len(str(chapter)) for chapter in chapters)
+        saved_filepath = save_novel_to_output(title, chapters, chapter_titles, provider_name, model_name, total_words, novel_id)
+        
+        # 保存生成过程文件
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_title = title.replace(" ", "_").replace("/", "_").replace("\\", "_")
+        generation_log['end_time'] = datetime.datetime.now().isoformat()
+        process_filepath = save_generation_process(generation_log, safe_title, timestamp)
         
         # 完成
-        total_words = sum(len(str(chapter)) for chapter in chapters)
         final_stats = {
             "已生成章节": len(chapters), 
             "预计总章节": num_chapters, 
@@ -248,14 +737,40 @@ def generate_output_with_progress(prompt, num_chapters, writing_style, provider_
             "小说标题": title
         }
         
-        final_log = f"✅ 小说《{title}》生成完成\n📚 共{len(chapters)}章，总字数：{total_words}字\n💰 成本：${summary['total_cost']:.4f}\n📖 EPUB文件已生成"
+        # 更新最终状态信息，包含保存路径
+        save_info = f"\n📁 文本文件: {saved_filepath}" if saved_filepath else "\n⚠️ 文本文件保存失败"
+        process_info = f"\n📋 生成过程: {process_filepath}" if process_filepath else "\n⚠️ 生成过程保存失败"
         
-        yield ("生成完成!", "所有章节创作完成", final_stats, cost_info, final_log, None, file_url)
+        final_detailed_status = f"✅ 小说创作完成!\n\n📊 最终进度: 100% ({total_steps}/{total_steps})\n📚 章节状态: {len(chapters)}/{num_chapters} 全部完成\n🔢 总字数: {total_words:,}字\n💡 当前步骤: 创作完成\n📋 小说标题: {title}\n🎉 状态: 创作成功{save_info}{process_info}"
+        
+        final_chapter_info = f"📖 所有章节创作完成!\n\n✅ 成功完成: {len(chapters)}章\n📊 总字数: {total_words:,}字\n📚 平均每章: {total_words//len(chapters):,}字\n📖 EPUB文件已生成\n🎯 小说标题: {title}{save_info}{process_info}"
+        
+        final_log = f"✅ 小说《{title}》生成完成\n📚 共{len(chapters)}章，总字数：{total_words}字\n📖 EPUB文件已生成\n📁 文本文件已保存到output文件夹\n📋 生成过程已保存"
+        
+        final_process_info = f"🔍 生成过程完成\n\n📊 最终统计:\n• 候选情节: {len(generation_log['plots'])}个\n• 完成章节: {len(generation_log['chapters'])}/{num_chapters}\n• 生成摘要: {len(generation_log['summaries'])}个\n• 总步骤: {len(generation_log['steps'])}步\n• 创作时长: {(datetime.datetime.now() - datetime.datetime.fromisoformat(generation_log['start_time'])).total_seconds():.2f}秒\n\n📁 所有文件已保存到output文件夹"
+        
+        yield (final_detailed_status, final_chapter_info, final_stats, final_log, final_process_info, None, file_url)
         
     except Exception as e:
         logger.error(f"生成小说时发生错误: {e}")
+        
+        # 保存部分生成过程（如果有的话）
+        if 'generation_log' in locals():
+            try:
+                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                safe_title = generation_log.get('title', 'Failed_Novel').replace(" ", "_").replace("/", "_").replace("\\", "_")
+                generation_log['end_time'] = datetime.datetime.now().isoformat()
+                generation_log['error'] = str(e)
+                save_generation_process(generation_log, f"{safe_title}_FAILED", timestamp)
+                logger.info("📋 已保存部分生成过程到文件")
+            except:
+                logger.error("❌ 无法保存错误时的生成过程")
+        
+        error_detailed_status = f"❌ 生成失败!\n\n📊 进度状态: 错误\n📚 章节状态: 生成中断\n🔢 字数统计: {current_words:,}字\n💡 当前步骤: 发生错误\n📋 错误信息: {str(e)[:100]}...\n⚠️ 状态: 创作失败"
+        error_chapter_info = f"❌ 创作过程中断!\n\n🚫 错误类型: 系统异常\n📝 错误详情: {str(e)[:150]}...\n🔄 建议: 请检查配置后重试"
+        error_process_info = f"🔍 生成过程中断\n\n❌ 错误发生\n⏰ 时间: {datetime.datetime.now().strftime('%H:%M:%S')}\n🚫 错误信息: {str(e)[:100]}...\n\n📋 部分生成过程已保存到output文件夹"
         error_msg = f"❌ 生成失败: {str(e)}"
-        yield ("生成失败", "发生错误", {"已生成章节": 0, "预计总章节": 0, "生成进度": "错误", "当前字数": 0}, "生成失败", error_msg, None, None)
+        yield (error_detailed_status, error_chapter_info, {"已生成章节": 0, "预计总章节": 0, "生成进度": "错误", "当前字数": 0}, error_msg, error_process_info, None, None)
         raise gr.Error(str(e))
 
 def generate_output(prompt, num_chapters, writing_style, provider_name, model_name):
@@ -309,18 +824,24 @@ def get_available_providers():
     return available_names, default_provider
 
 def get_models_for_current_provider():
-    """获取当前提供商的模型列表"""
+    """获取当前提供商的模型列表和默认模型"""
     try:
         current_provider = config_manager.provider_manager.get_current_provider_name()
         models = config_manager.provider_manager.get_models_for_provider(current_provider)
-        return models if models else ["默认模型"]
+        if models:
+            # 获取默认模型
+            default_model = config_manager.provider_manager.get_default_model(current_provider)
+            # 如果默认模型存在且在模型列表中，使用默认模型；否则使用第一个模型
+            selected_model = default_model if default_model in models else models[0]
+            return models, selected_model
+        return ["默认模型"], "默认模型"
     except Exception as e:
         logger.error(f"获取模型列表失败: {e}")
-        return ["默认模型"]
+        return ["默认模型"], "默认模型"
 
 default_idea, default_style = get_default_values()
 available_providers, current_provider = get_available_providers()
-available_models = get_models_for_current_provider()
+available_models, selected_model = get_models_for_current_provider()
 
 version_info = get_version_info()
 app_title = f"🎭 StoryGenius：AI智能小说创作平台 v{get_version()}"
@@ -360,7 +881,11 @@ def update_models_dropdown(provider_name):
         if provider_key:
             models = config_manager.provider_manager.get_models_for_provider(provider_key)
             if models:
-                return gr.update(choices=models, value=models[0])
+                # 获取默认模型
+                default_model = config_manager.provider_manager.get_default_model(provider_key)
+                # 如果默认模型存在且在模型列表中，使用默认模型；否则使用第一个模型
+                selected_model = default_model if default_model in models else models[0]
+                return gr.update(choices=models, value=selected_model)
         
         return gr.update(choices=["默认模型"], value="默认模型")
     except Exception as e:
@@ -480,7 +1005,7 @@ with gr.Blocks(
                         )
                         model_input = gr.Dropdown(
                             choices=available_models,
-                            value=available_models[0] if available_models else "默认模型",
+                            value=selected_model,
                             label="🎯 选择模型",
                             interactive=True
                         )
@@ -515,42 +1040,53 @@ with gr.Blocks(
             
             # 进度显示区域
             with gr.Row():
-                with gr.Column(scale=1):
-                    progress_bar = gr.Progress()
+                with gr.Column(scale=2):
+                    # 详细的生成状态信息
                     generation_status = gr.Textbox(
-                        label="🔄 生成状态",
-                        value="等待开始...",
+                        label="📋 详细生成状态",
+                        value="🔄 等待开始小说创作...\n\n📊 当前进度: 0%\n📚 章节状态: 未开始\n🔢 字数统计: 0字\n💡 当前步骤: 准备中",
                         interactive=False,
-                        lines=2
+                        lines=8,
+                        max_lines=12
                     )
                     
-                    current_step = gr.Textbox(
-                        label="📋 当前步骤",
-                        value="未开始",
-                        interactive=False
+                with gr.Column(scale=1):
+                    # 章节完成情况
+                    chapter_progress = gr.Textbox(
+                        label="📖 章节完成情况",
+                        value="暂无章节完成",
+                        interactive=False,
+                        lines=8,
+                        max_lines=12
+                    )
+                    
+                    # 保留一个简化的统计JSON（隐藏）
+                    generation_stats = gr.JSON(
+                        label="📊 生成统计",
+                        value={"已生成章节": 0, "预计总章节": 0, "生成进度": "0%", "当前字数": 0},
+                        visible=False
+                    )
+                    
+            
+            # 实时日志和生成过程显示
+            with gr.Row():
+                with gr.Column(scale=1):
+                    generation_log = gr.Textbox(
+                        label="📝 生成日志",
+                        value="",
+                        interactive=False,
+                        lines=6,
+                        max_lines=10
                     )
                 
                 with gr.Column(scale=1):
-                    generation_stats = gr.JSON(
-                        label="📊 生成统计",
-                        value={"已生成章节": 0, "预计总章节": 0, "生成进度": "0%", "当前字数": 0}
+                    generation_process = gr.Textbox(
+                        label="🔍 生成过程详情",
+                        value="暂无生成过程信息",
+                        interactive=False,
+                        lines=6,
+                        max_lines=10
                     )
-                    
-                    cost_info = gr.Textbox(
-                        label="💰 成本信息",
-                        value="暂无数据",
-                        interactive=False
-                    )
-            
-            # 实时日志显示
-            with gr.Row():
-                generation_log = gr.Textbox(
-                    label="📝 生成日志",
-                    value="",
-                    interactive=False,
-                    lines=6,
-                    max_lines=10
-                )
             
             # 输出区域
             with gr.Row():
@@ -561,7 +1097,7 @@ with gr.Blocks(
             generate_btn.click(
                 generate_output_with_progress,
                 inputs=[prompt_input, chapters_input, style_input, provider_input, model_input],
-                outputs=[generation_status, current_step, generation_stats, cost_info, generation_log, cover_output, file_output]
+                outputs=[generation_status, chapter_progress, generation_stats, generation_log, generation_process, cover_output, file_output]
             )
             
             refresh_status_btn.click(

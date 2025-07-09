@@ -1,0 +1,38 @@
+{
+  "title": "多巴胺垄断集团：阴茎征服华尔街",
+  "chapters": 10,
+  "total_words": 15664,
+  "average_words_per_chapter": 1566,
+  "created_time": "2025-07-08T14:20:21.208966",
+  "provider": "OpenRouter",
+  "model": "deepseek/deepseek-chat-v3-0324",
+  "novel_id": "7baa14d4e02c4583be1333a3c9c69c47",
+  "chapter_titles": [
+    "Chapter 1 - 第1章",
+    "Chapter 2 - 第2章",
+    "Chapter 3 - 第3章",
+    "Chapter 4 - 第4章",
+    "Chapter 5 - 第5章",
+    "Chapter 6 - 第6章",
+    "Chapter 7 - 第7章",
+    "Chapter 8 - 第8章",
+    "Chapter 9 - 第9章",
+    "Chapter 10 - 第10章"
+  ],
+  "text_file": "多巴胺垄断集团：阴茎征服华尔街_20250708_142021.txt",
+  "chapters_directory": "多巴胺垄断集团：阴茎征服华尔街_20250708_142021_chapters",
+  "chapter_files": [
+    "第01章_Chapter_1_-_第1章.txt",
+    "第02章_Chapter_2_-_第2章.txt",
+    "第03章_Chapter_3_-_第3章.txt",
+    "第04章_Chapter_4_-_第4章.txt",
+    "第05章_Chapter_5_-_第5章.txt",
+    "第06章_Chapter_6_-_第6章.txt",
+    "第07章_Chapter_7_-_第7章.txt",
+    "第08章_Chapter_8_-_第8章.txt",
+    "第09章_Chapter_9_-_第9章.txt",
+    "第10章_Chapter_10_-_第10章.txt"
+  ],
+  "generated_by": "StoryGenius AI",
+  "version": "2.0.0"
+}

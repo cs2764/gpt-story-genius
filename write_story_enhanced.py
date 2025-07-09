@@ -5,7 +5,7 @@ import time
 import logging
 from typing import Dict, List, Tuple, Any
 from config_manager import EnhancedConfigManager
-from config import save_novel_chapter, generate_uuid
+from config import save_novel_chapter, generate_uuid, save_chapter_summary, load_chapter_summary, load_chapter_content
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -23,26 +23,106 @@ class StoryWriter:
         """估算文本的token数量"""
         return len(text) // 4  # 粗略估算
     
+    def get_token_stats(self, messages: List[Dict], response_content: str) -> Dict:
+        """获取Token统计信息"""
+        # 计算输入Token数
+        input_text = ""
+        for msg in messages:
+            input_text += msg.get("content", "")
+        
+        input_tokens = self.estimate_tokens(input_text)
+        output_tokens = self.estimate_tokens(response_content)
+        
+        return {
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "total_tokens": input_tokens + output_tokens
+        }
+    
     def create_completion_with_monitoring(self, messages: List[Dict], **kwargs) -> Dict:
         """带监控的完成创建"""
+        import time
+        start_time = time.time()
+        
+        # 初始化变量以避免UnboundLocalError
+        provider_name = "Unknown"
+        model_name = "Unknown"
+        
         try:
+            # 获取当前提供商信息
+            current_provider = self.config_manager.provider_manager.get_provider()
+            provider_name = current_provider.config.name if current_provider else "Unknown"
+            
             # 如果设置了当前模型，使用它
+            model_name = kwargs.get('model', self.current_model)
             if self.current_model and 'model' not in kwargs:
                 kwargs['model'] = self.current_model
-                logger.info(f"使用指定模型: {self.current_model}")
+                model_name = self.current_model
+            
+            # 计算输入Token数量
+            input_text = ""
+            for msg in messages:
+                input_text += msg.get("content", "")
+            estimated_input_tokens = self.estimate_tokens(input_text)
+            
+            # 记录API调用开始
+            logger.info("=" * 80)
+            logger.info(f"🚀 API调用开始")
+            logger.info(f"📡 提供商: {provider_name}")
+            logger.info(f"🤖 模型: {model_name}")
+            logger.info(f"📊 预估输入Token: {estimated_input_tokens:,}")
+            logger.info(f"💬 消息数量: {len(messages)}")
+            logger.info(f"⚙️ 参数: {kwargs}")
+            logger.info(f"🕐 开始时间: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(start_time))}")
+            
+            # 记录消息详情
+            for i, msg in enumerate(messages):
+                content_preview = msg.get("content", "")[:200] + "..." if len(msg.get("content", "")) > 200 else msg.get("content", "")
+                logger.info(f"📝 消息{i+1} [{msg.get('role', 'unknown')}]: {content_preview}")
+            
+            logger.info("-" * 80)
             
             response = self.config_manager.create_completion_with_monitoring(
                 messages=messages,
                 **kwargs
             )
+            
+            # 计算响应时间和Token
+            end_time = time.time()
+            response_time = end_time - start_time
+            response_content = self.extract_content_from_response(response)
+            estimated_output_tokens = self.estimate_tokens(response_content)
+            total_tokens = estimated_input_tokens + estimated_output_tokens
+            
+            # 记录API调用结果
+            logger.info(f"✅ API调用成功")
+            logger.info(f"⏱️ 响应时间: {response_time:.2f}秒")
+            logger.info(f"📊 输出Token: {estimated_output_tokens:,}")
+            logger.info(f"📊 总Token: {total_tokens:,}")
+            logger.info(f"📄 响应长度: {len(response_content)}字符")
+            logger.info(f"📝 响应预览: {response_content[:300]}...")
+            logger.info("=" * 80)
+            
             return response
+            
         except Exception as e:
-            logger.error(f"API调用失败: {e}")
+            end_time = time.time()
+            response_time = end_time - start_time
+            
+            logger.error("=" * 80)
+            logger.error(f"❌ API调用失败")
+            logger.error(f"📡 提供商: {provider_name}")
+            logger.error(f"🤖 模型: {model_name}")
+            logger.error(f"⏱️ 失败时间: {response_time:.2f}秒")
+            logger.error(f"🚫 错误信息: {str(e)}")
+            logger.error(f"🔍 错误类型: {type(e).__name__}")
+            logger.error("=" * 80)
             raise
     
     def generate_plots(self, prompt: str) -> List[str]:
         """生成情节"""
-        logger.info("生成小说情节...")
+        logger.info("🎭 开始生成小说情节")
+        logger.info(f"📝 用户提示: {prompt}")
         
         # 获取系统提示词
         current_provider = self.config_manager.provider_manager.get_provider()
@@ -52,17 +132,26 @@ class StoryWriter:
         user_content = f"基于这个提示生成10个奇幻小说情节：{prompt}"
         if current_provider.config.system_prompt and current_provider.config.system_prompt.strip():
             user_content = current_provider.config.system_prompt + "\n\n" + user_content
+            logger.info(f"📋 使用用户自定义系统提示词: {current_provider.config.system_prompt[:100]}...")
         
         messages = [
             {"role": "system", "content": default_system_prompt},
             {"role": "user", "content": user_content}
         ]
         
+        logger.info(f"📤 发送情节生成请求")
         response = self.create_completion_with_monitoring(messages)
         
         # 处理不同提供商的响应格式
         content = self.extract_content_from_response(response)
-        return content.split('\n')
+        plots = content.split('\n')
+        
+        logger.info(f"✅ 成功生成 {len(plots)} 个情节候选")
+        for i, plot in enumerate(plots[:5]):  # 只显示前5个
+            if plot.strip():
+                logger.info(f"📖 情节{i+1}: {plot.strip()[:150]}...")
+        
+        return plots
     
     def select_most_engaging(self, plots: List[str]) -> str:
         """选择最吸引人的情节"""
@@ -156,9 +245,12 @@ class StoryWriter:
         
         return filename
     
-    def write_first_chapter(self, plot: str, first_chapter_title: str, writing_style: str) -> str:
-        """写第一章"""
-        logger.info("写作第一章...")
+    def write_first_chapter(self, plot: str, first_chapter_title: str, writing_style: str) -> Tuple[str, Dict]:
+        """写第一章，返回内容和Token统计"""
+        logger.info("📝 开始写作第一章")
+        logger.info(f"📖 章节标题: {first_chapter_title}")
+        logger.info(f"✍️ 写作风格: {writing_style}")
+        logger.info(f"📋 情节摘要: {plot[:200]}...")
         
         # 获取当前提供商的系统提示词
         current_provider = self.config_manager.provider_manager.get_provider()
@@ -175,10 +267,15 @@ class StoryWriter:
         ]
         
         # 第一次生成
+        logger.info("📤 发送第一章初稿生成请求")
         initial_response = self.create_completion_with_monitoring(messages)
         initial_chapter = self.extract_content_from_response(initial_response)
+        initial_stats = self.get_token_stats(messages, initial_chapter)
+        
+        logger.info(f"📊 第一章初稿完成 - 字数: {len(initial_chapter)}, Token: {initial_stats['total_tokens']:,}")
         
         # 改进章节
+        logger.info("🔄 开始改进第一章")
         improvement_default_prompt = "你是一位世界级的奇幻小说作家。你的工作是拿你学生的第一章初稿，重写得更好，更详细。"
         improvement_user_content = f"这是你要求学生遵循的高级情节：{plot}\n\n这是他们写的第一章：{initial_chapter}\n\n现在，重写这部小说的第一章，要比你学生的章节好得多。它应该仍然遵循完全相同的情节，但应该更详细、更长、更引人入胜。以下是你应该使用的写作风格描述：`{writing_style}`。请用中文回答。"
         if current_provider.config.system_prompt and current_provider.config.system_prompt.strip():
@@ -189,12 +286,29 @@ class StoryWriter:
             {"role": "user", "content": improvement_user_content}
         ]
         
+        logger.info("📤 发送第一章改进请求")
         improved_response = self.create_completion_with_monitoring(improvement_messages)
-        return self.extract_content_from_response(improved_response)
+        final_chapter = self.extract_content_from_response(improved_response)
+        improvement_stats = self.get_token_stats(improvement_messages, final_chapter)
+        
+        # 合并Token统计
+        total_stats = {
+            "input_tokens": initial_stats["input_tokens"] + improvement_stats["input_tokens"],
+            "output_tokens": initial_stats["output_tokens"] + improvement_stats["output_tokens"],
+            "total_tokens": initial_stats["total_tokens"] + improvement_stats["total_tokens"]
+        }
+        
+        logger.info(f"✅ 第一章创作完成!")
+        logger.info(f"📊 最终统计 - 字数: {len(final_chapter)}, 总Token: {total_stats['total_tokens']:,}")
+        logger.info(f"📈 改进效果 - 字数增加: {len(final_chapter) - len(initial_chapter)}, Token增加: {total_stats['total_tokens'] - initial_stats['total_tokens']:,}")
+        
+        return final_chapter, total_stats
     
-    def write_chapter(self, previous_chapters: str, plot: str, chapter_title: str) -> str:
-        """写章节"""
-        logger.info(f"写作章节：{chapter_title}")
+    def write_chapter(self, previous_chapters: str, plot: str, chapter_title: str) -> Tuple[str, Dict]:
+        """写章节，返回内容和Token统计"""
+        logger.info(f"📝 开始写作章节：{chapter_title}")
+        logger.info(f"📊 上下文长度: {len(previous_chapters)}字符")
+        logger.info(f"📋 情节长度: {len(plot)}字符")
         
         # 获取当前提供商的系统提示词
         current_provider = self.config_manager.provider_manager.get_provider()
@@ -211,13 +325,164 @@ class StoryWriter:
         ]
         
         try:
+            logger.info("📤 发送章节生成请求")
             response = self.create_completion_with_monitoring(messages)
-            return self.extract_content_from_response(response)
+            chapter_content = self.extract_content_from_response(response)
+            token_stats = self.get_token_stats(messages, chapter_content)
+            
+            logger.info(f"✅ 章节生成成功")
+            logger.info(f"📊 章节统计 - 字数: {len(chapter_content)}, Token: {token_stats['total_tokens']:,}")
+            
+            return chapter_content, token_stats
         except Exception as e:
-            logger.warning(f"第一次尝试失败，重试：{e}")
+            logger.warning(f"❌ 第一次尝试失败，准备重试：{e}")
+            logger.info("⏳ 等待10秒后重试...")
             time.sleep(10)
+            
+            logger.info("🔄 重试章节生成请求")
             response = self.create_completion_with_monitoring(messages)
-            return self.extract_content_from_response(response)
+            chapter_content = self.extract_content_from_response(response)
+            token_stats = self.get_token_stats(messages, chapter_content)
+            
+            logger.info(f"✅ 重试成功")
+            logger.info(f"📊 章节统计 - 字数: {len(chapter_content)}, Token: {token_stats['total_tokens']:,}")
+            
+            return chapter_content, token_stats
+    
+    def summarize_chapter(self, chapter_content: str, chapter_title: str) -> str:
+        """生成章节摘要"""
+        logger.info(f"📄 开始生成章节摘要：{chapter_title}")
+        logger.info(f"📊 章节内容长度: {len(chapter_content)}字符")
+        
+        # 获取当前提供商的系统提示词
+        current_provider = self.config_manager.provider_manager.get_provider()
+        default_system_prompt = "你是一位专业的文学编辑，专门负责为小说章节创建简洁而全面的摘要。"
+        
+        # 构建 user 提示词：用户系统提示词 + 原始提示词
+        user_content = f"""请为以下小说章节生成一个简洁但全面的摘要。摘要应该：
+1. 保留关键情节发展
+2. 记录重要人物动向和对话要点
+3. 突出与整体故事发展相关的重要细节
+4. 长度控制在200-300字之间
+5. 用中文回答
+
+章节标题：{chapter_title}
+
+章节内容：
+{chapter_content}
+
+请生成摘要："""
+        if current_provider.config.system_prompt and current_provider.config.system_prompt.strip():
+            user_content = current_provider.config.system_prompt + "\n\n" + user_content
+        
+        messages = [
+            {"role": "system", "content": default_system_prompt},
+            {"role": "user", "content": user_content}
+        ]
+        
+        try:
+            logger.info("📤 发送摘要生成请求")
+            response = self.create_completion_with_monitoring(messages)
+            summary = self.extract_content_from_response(response)
+            
+            logger.info(f"✅ 摘要生成成功")
+            logger.info(f"📊 摘要长度: {len(summary)}字符")
+            logger.info(f"📝 摘要预览: {summary[:100]}...")
+            
+            return summary
+        except Exception as e:
+            logger.warning(f"❌ 摘要生成失败，使用备用方案：{e}")
+            # 备用方案：从章节内容提取前几句作为摘要
+            sentences = chapter_content.split('。')
+            summary = '。'.join(sentences[:3]) + '。'
+            backup_summary = f"【{chapter_title}】\n{summary}"
+            
+            logger.info(f"🔄 使用备用摘要方案")
+            logger.info(f"📊 备用摘要长度: {len(backup_summary)}字符")
+            
+            return backup_summary
+    
+    def build_optimized_context(self, novel_id: str, current_chapter_index: int, recent_chapters_count: int = 1, summary_chapters_count: int = 5) -> str:
+        """构建优化的上下文，使用过去5章摘要+过去1章全文"""
+        logger.info(f"🔧 开始构建优化上下文")
+        logger.info(f"📖 当前章节索引: {current_chapter_index}")
+        logger.info(f"📚 保留全文的最近章节数: {recent_chapters_count}")
+        logger.info(f"📋 保留摘要的章节数: {summary_chapters_count}")
+        
+        context_parts = []
+        total_full_text_chars = 0
+        total_summary_chars = 0
+        
+        # 如果章节数较少，直接使用全文
+        if current_chapter_index <= recent_chapters_count:
+            logger.info(f"📋 使用全文模式（章节数 <= {recent_chapters_count}）")
+            for i in range(current_chapter_index):
+                chapter_content = load_chapter_content(novel_id, i)
+                if chapter_content:
+                    context_parts.append(f"第{i+1}章:\n{chapter_content}")
+                    total_full_text_chars += len(chapter_content)
+                    logger.info(f"📄 加载第{i+1}章全文: {len(chapter_content)}字符")
+        else:
+            logger.info(f"🔄 使用优化模式（过去{summary_chapters_count}章摘要+过去{recent_chapters_count}章全文）")
+            
+            # 计算要包含的章节范围
+            total_context_chapters = summary_chapters_count + recent_chapters_count
+            start_chapter_index = max(0, current_chapter_index - total_context_chapters)
+            summary_end_index = max(0, current_chapter_index - recent_chapters_count)
+            
+            logger.info(f"📄 章节范围: 第{start_chapter_index+1}-{current_chapter_index}章")
+            logger.info(f"📋 摘要章节: 第{start_chapter_index+1}-{summary_end_index}章")
+            logger.info(f"📖 全文章节: 第{summary_end_index+1}-{current_chapter_index}章")
+            
+            # 添加摘要章节（过去5章，不包括最近1章）
+            for i in range(start_chapter_index, summary_end_index):
+                summary = load_chapter_summary(novel_id, i)
+                if summary:
+                    context_parts.append(f"第{i+1}章摘要:\n{summary}")
+                    total_summary_chars += len(summary)
+                    logger.info(f"📋 加载第{i+1}章摘要: {len(summary)}字符")
+                else:
+                    # 如果没有摘要，使用全文的前几句
+                    logger.warning(f"⚠️ 第{i+1}章摘要缺失，使用简化摘要")
+                    chapter_content = load_chapter_content(novel_id, i)
+                    if chapter_content:
+                        sentences = chapter_content.split('。')
+                        brief_summary = '。'.join(sentences[:2]) + '。'
+                        context_parts.append(f"第{i+1}章摘要:\n{brief_summary}")
+                        total_summary_chars += len(brief_summary)
+                        logger.info(f"🔄 生成第{i+1}章简化摘要: {len(brief_summary)}字符")
+            
+            # 添加全文章节（过去1章）
+            for i in range(summary_end_index, current_chapter_index):
+                chapter_content = load_chapter_content(novel_id, i)
+                if chapter_content:
+                    context_parts.append(f"第{i+1}章:\n{chapter_content}")
+                    total_full_text_chars += len(chapter_content)
+                    logger.info(f"📄 加载第{i+1}章全文: {len(chapter_content)}字符")
+        
+        # 构建最终上下文
+        if context_parts:
+            final_context = "\n\n".join(context_parts)
+            
+            # 统计信息
+            total_chars = len(final_context)
+            estimated_tokens = self.estimate_tokens(final_context)
+            
+            logger.info(f"✅ 上下文构建完成")
+            logger.info(f"📊 上下文统计:")
+            logger.info(f"  • 总字符数: {total_chars:,}")
+            logger.info(f"  • 全文字符数: {total_full_text_chars:,}")
+            logger.info(f"  • 摘要字符数: {total_summary_chars:,}")
+            logger.info(f"  • 预估Token: {estimated_tokens:,}")
+            
+            if total_summary_chars > 0:
+                reduction_percent = (total_summary_chars / (total_full_text_chars + total_summary_chars)) * 100
+                logger.info(f"  • Token优化比例: {reduction_percent:.1f}% 使用摘要")
+            
+            return final_context
+        else:
+            logger.warning("⚠️ 无可用上下文，返回默认开始")
+            return "故事开始..."
     
     def generate_storyline(self, prompt: str, num_chapters: int) -> str:
         """生成故事线"""
@@ -374,43 +639,64 @@ class StoryWriter:
             
             logger.info(f'章节标题: {chapter_titles}')
             
-            novel = f"故事线:\n{storyline}\n\n"
-            
             # 写第一章
-            first_chapter = self.write_first_chapter(storyline, str(chapter_titles[0]), writing_style.strip())
-            logger.info('第一章已完成')
+            first_chapter, first_chapter_tokens = self.write_first_chapter(storyline, str(chapter_titles[0]), writing_style.strip())
+            logger.info(f'第一章已完成 - 输入Token: {first_chapter_tokens["input_tokens"]}, 输出Token: {first_chapter_tokens["output_tokens"]}')
             
             # 保存第一章
             save_novel_chapter(novel_id, 0, list(chapter_titles[0])[0], first_chapter)
             
-            novel += f"第一章:\n{first_chapter}\n"
-            chapters = [first_chapter]
+            # 生成第一章摘要
+            first_chapter_title = list(chapter_titles[0])[0]
+            first_chapter_summary = self.summarize_chapter(first_chapter, first_chapter_title)
+            save_chapter_summary(novel_id, 0, first_chapter_summary)
+            logger.info('第一章摘要已生成')
             
-            # 写其余章节
+            chapters = [first_chapter]
+            chapter_tokens_list = [first_chapter_tokens]  # 存储每章的Token统计
+            
+            # 写其余章节 - 使用优化的上下文构建
             for i in range(num_chapters - 1):
-                logger.info(f"正在写第 {i + 2} 章...")
+                current_chapter_index = i + 1  # 当前要写的章节索引（0-based）
+                logger.info(f"正在写第 {current_chapter_index + 1} 章...")
                 time.sleep(10)  # 减少等待时间
                 
-                chapter = self.write_chapter(novel, storyline, str(chapter_titles[i + 1]))
+                # 构建优化的上下文（使用过去5章摘要 + 过去1章全文）
+                optimized_context = self.build_optimized_context(novel_id, current_chapter_index, recent_chapters_count=1, summary_chapters_count=5)
+                
+                # 写章节时使用优化的上下文而不是完整的novel字符串
+                chapter, chapter_tokens = self.write_chapter(optimized_context, storyline, str(chapter_titles[i + 1]))
                 
                 # 检查章节长度
                 if len(str(chapter)) < 100:
                     logger.warning('章节长度不足，重新生成...')
                     time.sleep(10)
-                    chapter = self.write_chapter(novel, storyline, str(chapter_titles[i + 1]))
+                    chapter, chapter_tokens = self.write_chapter(optimized_context, storyline, str(chapter_titles[i + 1]))
                 
-                novel += f"第{i + 2}章:\n{chapter}\n"
                 chapters.append(chapter)
-                logger.info(f'第{i + 2}章已完成')
+                chapter_tokens_list.append(chapter_tokens)
+                logger.info(f'第{current_chapter_index + 1}章已完成 - 输入Token: {chapter_tokens["input_tokens"]}, 输出Token: {chapter_tokens["output_tokens"]}')
                 
                 # 保存章节
-                save_novel_chapter(novel_id, (i+1), list(chapter_titles[i + 1])[0], chapter)
+                chapter_title = list(chapter_titles[i + 1])[0]
+                save_novel_chapter(novel_id, current_chapter_index, chapter_title, chapter)
+                
+                # 生成并保存章节摘要（除了最后一章）
+                if current_chapter_index < num_chapters - 1:  # 不是最后一章
+                    chapter_summary = self.summarize_chapter(chapter, chapter_title)
+                    save_chapter_summary(novel_id, current_chapter_index, chapter_summary)
+                    logger.info(f'第{current_chapter_index + 1}章摘要已生成')
             
             # 获取监控摘要
             summary = self.config_manager.get_monitoring_summary(1)  # 最近1小时
             logger.info(f"创作完成，总成本：${summary['total_cost']:.4f}")
             
-            return novel, title, chapters, chapter_titles
+            # 为了向后兼容，构建完整的novel字符串
+            novel = f"故事线:\n{storyline}\n\n"
+            for i, chapter in enumerate(chapters):
+                novel += f"第{i+1}章:\n{chapter}\n\n"
+            
+            return novel, title, chapters, chapter_titles, chapter_tokens_list
             
         except Exception as e:
             logger.error(f"创作小说时发生错误: {e}")
@@ -428,4 +714,6 @@ def write_fantasy_novel(prompt: str, num_chapters: int, writing_style: str,
     else:
         provider_name = None  # 使用当前配置的提供商
     
-    return writer.write_fantasy_novel(prompt, num_chapters, writing_style, provider_name, model_name)
+    # 调用新版本函数，但只返回前4个元素以保持向后兼容
+    result = writer.write_fantasy_novel(prompt, num_chapters, writing_style, provider_name, model_name)
+    return result[:4]  # 只返回 novel, title, chapters, chapter_titles

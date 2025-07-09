@@ -92,6 +92,15 @@ class ConfigUI:
                     refresh_models_btn = gr.Button("🔄 刷新模型列表")
                 
                 with gr.Column():
+                    default_model_dropdown = gr.Dropdown(
+                        label="默认模型",
+                        choices=[],
+                        multiselect=False,
+                        interactive=True
+                    )
+                    
+                    set_default_model_btn = gr.Button("🔧 设置为默认模型", variant="secondary")
+                    
                     model_info = gr.Textbox(
                         label="模型信息",
                         value="",
@@ -119,14 +128,17 @@ class ConfigUI:
                 provider_key = self.get_provider_key(provider_display_name)
                 if provider_key:
                     provider = self.config_manager.provider_manager.get_provider(provider_key)
+                    models = self.get_models_for_provider(provider_key)
+                    default_model = provider.config.default_model or (models[0] if models else "")
                     return (
                         provider.config.api_key or "",
                         provider.config.base_url or "",
                         provider.config.system_prompt or "",
-                        self.get_models_for_provider(provider_key),
-                        f"当前选择: {provider_display_name}"
+                        models,
+                        default_model,
+                        f"当前选择: {provider_display_name}\n默认模型: {default_model or '未设置'}"
                     )
-                return "", "", "", [], ""
+                return "", "", "", [], "", ""
             
             def on_save_config(provider_display_name, api_key, base_url, system_prompt):
                 """保存配置事件"""
@@ -162,14 +174,26 @@ class ConfigUI:
                 """刷新模型列表"""
                 provider_key = self.get_provider_key(provider_display_name)
                 if provider_key:
-                    return gr.update(choices=self.get_models_for_provider(provider_key))
-                return gr.update(choices=[])
+                    models = self.get_models_for_provider(provider_key)
+                    return gr.update(choices=models), gr.update(choices=models)
+                return gr.update(choices=[]), gr.update(choices=[])
+            
+            def on_set_default_model(provider_display_name, selected_model):
+                """设置默认模型"""
+                try:
+                    provider_key = self.get_provider_key(provider_display_name)
+                    if provider_key and selected_model:
+                        self.config_manager.provider_manager.set_default_model(provider_key, selected_model)
+                        return f"✅ 已设置 {selected_model} 为默认模型"
+                    return "❌ 请选择一个模型"
+                except Exception as e:
+                    return f"❌ 设置失败: {str(e)}"
             
             # 绑定事件
             provider_dropdown.change(
                 on_provider_change,
                 inputs=[provider_dropdown],
-                outputs=[api_key_input, base_url_input, system_prompt_input, available_models, current_provider_info]
+                outputs=[api_key_input, base_url_input, system_prompt_input, available_models, default_model_dropdown, current_provider_info]
             )
             
             save_config_btn.click(
@@ -188,7 +212,13 @@ class ConfigUI:
             refresh_models_btn.click(
                 on_refresh_models,
                 inputs=[provider_dropdown],
-                outputs=[available_models]
+                outputs=[available_models, default_model_dropdown]
+            )
+            
+            set_default_model_btn.click(
+                on_set_default_model,
+                inputs=[provider_dropdown, default_model_dropdown],
+                outputs=[config_status]
             )
             
             refresh_btn.click(
