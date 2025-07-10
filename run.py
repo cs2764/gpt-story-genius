@@ -386,7 +386,8 @@ def generate_novel(prompt, num_chapters, writing_style, provider_name, model_nam
         'Google Gemini': 'gemini',
         'OpenRouter': 'openrouter',
         'LM Studio': 'lmstudio',
-        'Claude': 'claude'
+        'Claude': 'claude',
+        'Grok': 'grok'
     }
     provider_key = provider_map.get(provider_name, provider_name.lower())
     
@@ -436,7 +437,8 @@ def generate_output_with_progress(prompt, num_chapters, writing_style, provider_
             'Google Gemini': 'gemini',
             'OpenRouter': 'openrouter',
             'LM Studio': 'lmstudio',
-            'Claude': 'claude'
+            'Claude': 'claude',
+            'Grok': 'grok'
         }
         provider_key = provider_map.get(provider_name, provider_name.lower())
         
@@ -773,6 +775,319 @@ def generate_output_with_progress(prompt, num_chapters, writing_style, provider_
         yield (error_detailed_status, error_chapter_info, {"已生成章节": 0, "预计总章节": 0, "生成进度": "错误", "当前字数": 0}, error_msg, error_process_info, None, None)
         raise gr.Error(str(e))
 
+def generate_outline_with_progress(prompt, num_chapters, writing_style, provider_name, model_name):
+    """带进度显示的小说大纲生成函数"""
+    try:
+        if not prompt or not writing_style:
+            raise gr.Error("提示词和写作风格是必填项")
+        if num_chapters < 1:
+            raise gr.Error("章节数必须大于等于1")
+        
+        # 检查提供商配置
+        if not check_providers():
+            raise gr.Error("请先在配置页面设置至少一个AI提供商的API密钥")
+
+        num_chapters = int(num_chapters)
+        
+        # 转换提供商显示名称为内部键
+        provider_map = {
+            'DeepSeek': 'deepseek',
+            '阿里云通义千问': 'alicloud', 
+            '智谱AI GLM': 'zhipu',
+            'Google Gemini': 'gemini',
+            'OpenRouter': 'openrouter',
+            'LM Studio': 'lmstudio',
+            'Claude': 'claude',
+            'Grok': 'grok'
+        }
+        provider_key = provider_map.get(provider_name, provider_name.lower())
+        
+        # 更新状态栏 - 开始生成
+        start_time = datetime.datetime.now()
+        detailed_status = f"🔄 正在生成大纲...\n\n📊 当前进度: 开始生成\n📚 计划章节: {num_chapters}章\n🤖 AI提供商: {provider_name}\n🎯 使用模型: {model_name}\n💡 当前步骤: 大纲生成中\n📋 步骤描述: 正在创建小说大纲和故事结构"
+        
+        chapter_info = f"📖 大纲生成中...\n\n📋 计划章节数: {num_chapters}\n🎯 提供商: {provider_name}\n🤖 模型: {model_name}\n📝 当前阶段: 大纲创建\n⏰ 开始时间: {start_time.strftime('%H:%M:%S')}"
+        
+        generation_stats = {"已生成章节": 0, "预计总章节": num_chapters, "生成进度": "大纲生成中", "当前字数": 0}
+        
+        log_msg = f"🎯 开始生成大纲 - 提供商: {provider_name}, 模型: {model_name}"
+        
+        process_info = f"🔍 大纲生成过程\n\n📊 当前步骤: 大纲生成\n⏰ 开始时间: {start_time.strftime('%H:%M:%S')}\n🎯 提供商: {provider_name}\n🤖 模型: {model_name}\n\n📋 正在生成完整的小说大纲..."
+        
+        # 先yield初始状态
+        yield (
+            "", 
+            "", 
+            "", 
+            "", 
+            "", 
+            gr.update(visible=False),
+            detailed_status,
+            chapter_info,
+            generation_stats,
+            log_msg,
+            process_info
+        )
+        
+        # 使用增强的小说创作器生成大纲
+        writer = StoryWriter()
+        
+        # 设置提供商和模型
+        if provider_key:
+            writer.config_manager.provider_manager.switch_provider(provider_key)
+        if model_name:
+            writer.current_model = model_name
+            
+        logger.info(f"🎯 开始生成大纲 - 提供商: {provider_name}, 模型: {model_name}")
+        
+        outline_data = writer.generate_complete_outline(prompt, num_chapters, writing_style)
+        
+        # 验证返回数据
+        required_keys = ["title", "plot", "character_list", "story_outline", "storyline"]
+        for key in required_keys:
+            if key not in outline_data:
+                logger.error(f"❌ 大纲数据缺少必要键: {key}")
+                raise gr.Error(f"生成的大纲数据不完整，缺少: {key}")
+        
+        logger.info(f"✅ 大纲生成成功 - 标题: {outline_data['title']}")
+        
+        # 更新状态栏 - 完成生成
+        end_time = datetime.datetime.now()
+        duration = (end_time - start_time).total_seconds()
+        
+        # 估算总字数
+        total_outline_words = len(outline_data["plot"]) + len(outline_data["character_list"]) + len(outline_data["story_outline"]) + len(outline_data["storyline"])
+        
+        success_detailed_status = f"✅ 大纲生成完成!\n\n📊 生成进度: 100% 完成\n📚 计划章节: {num_chapters}章\n🤖 AI提供商: {provider_name}\n🎯 使用模型: {model_name}\n💡 当前步骤: 大纲生成完成\n📋 小说标题: {outline_data['title']}\n🔢 大纲字数: {total_outline_words:,}字\n⏱️ 生成耗时: {duration:.2f}秒"
+        
+        success_chapter_info = f"📖 大纲生成成功!\n\n✅ 小说标题: {outline_data['title']}\n📋 计划章节: {num_chapters}章\n🔢 大纲总字数: {total_outline_words:,}字\n⏱️ 生成耗时: {duration:.2f}秒\n🎯 提供商: {provider_name}\n🤖 模型: {model_name}\n\n📚 现在可以开始创作小说了!"
+        
+        success_stats = {"已生成章节": 0, "预计总章节": num_chapters, "生成进度": "大纲完成", "当前字数": total_outline_words}
+        
+        success_log = f"✅ 大纲生成完成 - 标题: {outline_data['title'][:50]}{'...' if len(outline_data['title']) > 50 else ''}, 耗时: {duration:.2f}秒"
+        
+        success_process_info = f"🔍 大纲生成完成\n\n📊 最终状态: 成功完成\n⏰ 完成时间: {end_time.strftime('%H:%M:%S')}\n⏱️ 总耗时: {duration:.2f}秒\n\n📋 生成内容:\n• 小说标题: {outline_data['title']}\n• 情节梗概: {len(outline_data['plot'])}字\n• 人物列表: {len(outline_data['character_list'])}字\n• 故事大纲: {len(outline_data['story_outline'])}字\n• 详细故事线: {len(outline_data['storyline'])}字\n\n✅ 大纲创建成功，可以开始创作小说!"
+        
+        yield (
+            outline_data["title"],
+            outline_data["plot"], 
+            outline_data["character_list"],
+            outline_data["story_outline"],
+            outline_data["storyline"],
+            gr.update(visible=True),  # 显示开始创作按钮
+            success_detailed_status,
+            success_chapter_info,
+            success_stats,
+            success_log,
+            success_process_info
+        )
+        
+    except Exception as e:
+        logger.error(f"❌ 大纲生成失败: {e}")
+        
+        # 更新状态栏 - 错误状态
+        error_detailed_status = f"❌ 大纲生成失败!\n\n📊 生成进度: 错误\n📚 计划章节: {num_chapters}章\n🤖 AI提供商: {provider_name}\n🎯 使用模型: {model_name}\n💡 当前步骤: 生成失败\n📋 错误信息: {str(e)[:100]}...\n⚠️ 状态: 大纲生成失败"
+        
+        error_chapter_info = f"❌ 大纲生成失败!\n\n🚫 错误类型: 大纲生成异常\n📝 错误详情: {str(e)[:150]}...\n🔄 建议: 请检查配置后重试\n🎯 提供商: {provider_name}\n🤖 模型: {model_name}"
+        
+        error_stats = {"已生成章节": 0, "预计总章节": 0, "生成进度": "错误", "当前字数": 0}
+        
+        error_log = f"❌ 大纲生成失败: {str(e)}"
+        
+        error_process_info = f"🔍 大纲生成失败\n\n❌ 错误发生\n⏰ 时间: {datetime.datetime.now().strftime('%H:%M:%S')}\n🚫 错误信息: {str(e)[:100]}...\n🎯 提供商: {provider_name}\n🤖 模型: {model_name}\n\n🔄 请检查配置后重试"
+        
+        # 返回空值和隐藏按钮，同时更新状态栏
+        yield (
+            "", 
+            "", 
+            "", 
+            "", 
+            "", 
+            gr.update(visible=False),
+            error_detailed_status,
+            error_chapter_info,
+            error_stats,
+            error_log,
+            error_process_info
+        )
+
+def generate_novel_from_outline(title, plot, character_list, story_outline, storyline, 
+                               num_chapters, writing_style, provider_name, model_name):
+    """基于大纲生成小说（带进度追踪）"""
+    logger.info(f"📝 开始基于大纲生成小说：{title}")
+    
+    # 构建大纲数据
+    outline_data = {
+        "title": title,
+        "plot": plot,
+        "character_list": character_list,
+        "story_outline": story_outline,
+        "storyline": storyline
+    }
+    
+    # 转换提供商显示名称为内部键
+    provider_map = {
+        'DeepSeek': 'deepseek',
+        '阿里云通义千问': 'alicloud', 
+        '智谱AI GLM': 'zhipu',
+        'Google Gemini': 'gemini',
+        'OpenRouter': 'openrouter',
+        'LM Studio': 'lmstudio',
+        'Claude': 'claude',
+        'Grok': 'grok'
+    }
+    provider_key = provider_map.get(provider_name, provider_name.lower())
+    
+    # 进度追踪变量
+    current_step = 0
+    total_steps = num_chapters + 3  # 章节数 + 初始化 + 保存 + 生成EPUB
+    completed_chapters = []
+    total_words = 0
+    
+    def progress_callback(step_name, current_chapter=None, chapter_content=None, is_completed=False):
+        nonlocal current_step, completed_chapters, total_words
+        
+        if is_completed:
+            current_step += 1
+            if chapter_content:
+                completed_chapters.append(current_chapter)
+                total_words += len(chapter_content)
+        
+        # 计算进度
+        progress = int((current_step / total_steps) * 100)
+        
+        # 更新详细生成状态
+        status_lines = [
+            f"🔄 小说生成进度: {progress}% ({current_step}/{total_steps})",
+            f"📚 当前步骤: {step_name}",
+            f"📝 已完成章节: {len(completed_chapters)}/{num_chapters}",
+            f"📊 当前字数: {total_words:,}字"
+        ]
+        
+        if current_chapter:
+            status_lines.append(f"✍️ 正在处理: {current_chapter}")
+        
+        generation_status_text = "\n".join(status_lines)
+        
+        # 更新章节进度
+        if completed_chapters:
+            chapter_progress_text = f"✅ 已完成章节 ({len(completed_chapters)}/{num_chapters}):\n"
+            for i, chapter in enumerate(completed_chapters[-10:], 1):  # 只显示最近10章
+                chapter_progress_text += f"{i}. {chapter}\n"
+            if len(completed_chapters) > 10:
+                chapter_progress_text += f"... 及其他 {len(completed_chapters) - 10} 章\n"
+        else:
+            chapter_progress_text = "📝 正在准备章节创作..."
+        
+        # 更新统计信息
+        stats = {
+            "已生成章节": len(completed_chapters),
+            "预计总章节": num_chapters,
+            "生成进度": f"{progress}%",
+            "当前字数": total_words,
+            "当前步骤": step_name
+        }
+        
+        return generation_status_text, chapter_progress_text, stats
+    
+    # 初始化状态
+    status_text, progress_text, stats = progress_callback("初始化小说生成器...")
+    
+    try:
+        # 使用增强的小说创作器
+        writer = StoryWriter()
+        
+        # 添加进度回调到写作器
+        def chapter_progress_callback(chapter_index, chapter_title, chapter_content):
+            return progress_callback(
+                f"正在创作第{chapter_index + 1}章",
+                chapter_title,
+                chapter_content,
+                is_completed=True
+            )
+        
+        # 修改写作器以支持进度回调
+        progress_callback("正在生成章节内容...")
+        _, title, chapters, chapter_titles, chapter_tokens_list = writer.write_novel_from_outline(
+            outline_data, num_chapters, writing_style, provider_key, model_name
+        )
+        
+        # 模拟章节完成进度（因为write_novel_from_outline不直接支持回调）
+        for i, chapter in enumerate(chapters):
+            # 安全地获取章节标题
+            try:
+                if isinstance(chapter_titles[i], dict):
+                    chapter_title = list(chapter_titles[i].keys())[0]
+                elif isinstance(chapter_titles[i], str):
+                    chapter_title = chapter_titles[i]
+                else:
+                    chapter_title = f"第{i + 1}章"
+            except (IndexError, KeyError, TypeError) as e:
+                logger.warning(f"获取第{i + 1}章标题失败: {e}")
+                chapter_title = f"第{i + 1}章"
+            
+            progress_callback(
+                f"完成第{i + 1}章创作",
+                chapter_title,
+                chapter,
+                is_completed=True
+            )
+        
+        # 用chapter_titles中的正文取代章节说明
+        for i, chapter in enumerate(chapters):
+            try:
+                if isinstance(chapter_titles[i], dict):
+                    chapter_number_and_title = list(chapter_titles[i].keys())[0]
+                    chapter_titles[i] = {chapter_number_and_title: chapter}
+                elif isinstance(chapter_titles[i], str):
+                    # 如果是字符串，创建字典结构
+                    chapter_titles[i] = {chapter_titles[i]: chapter}
+                else:
+                    # 创建默认结构
+                    chapter_titles[i] = {f"第{i + 1}章": chapter}
+            except (IndexError, KeyError, TypeError) as e:
+                logger.warning(f"处理第{i + 1}章标题失败: {e}")
+                chapter_titles[i] = {f"第{i + 1}章": chapter}
+        
+        progress_callback("正在生成EPUB文件...")
+        
+        # 暂时跳过封面生成（功能保留，以后完善）
+        image_url = None
+        logger.info("封面生成功能已暂时禁用")
+        
+        # 生成小说 EPUB 文件（不使用封面）
+        file_url = create_epub(title, 'AI', chapter_titles, cover_image_path=None)
+        logger.info(f"Novel URL: {file_url}")
+        
+        # 保存到output文件夹
+        progress_callback("正在保存小说文件...")
+        novel_id = f"outline_{int(time.time())}"
+        save_novel_to_output(title, chapters, chapter_titles, provider_name, model_name, total_words, novel_id)
+        
+        # 最终状态更新
+        final_status, final_progress, final_stats = progress_callback("✅ 小说生成完成！", is_completed=True)
+        
+        logger.info(f"✅ 小说《{title}》生成完成，共{len(chapters)}章，{total_words:,}字")
+        
+        return (
+            image_url,
+            file_url,
+            final_status,
+            final_progress,
+            final_stats
+        )
+        
+    except Exception as e:
+        error_message = f"❌ 小说生成失败: {str(e)}"
+        logger.error(error_message)
+        return (
+            None,
+            None,
+            error_message,
+            "生成失败",
+            {"错误": str(e)}
+        )
+
 def generate_output(prompt, num_chapters, writing_style, provider_name, model_name):
     """兼容原版的生成函数"""
     try:
@@ -803,7 +1118,8 @@ def get_available_providers():
         'gemini': 'Google Gemini',
         'openrouter': 'OpenRouter',
         'lmstudio': 'LM Studio',
-        'claude': 'Claude'
+        'claude': 'Claude',
+        'grok': 'Grok'
     }
     
     # 获取提供商状态，只返回有API密钥的
@@ -826,11 +1142,26 @@ def get_available_providers():
 def get_models_for_current_provider():
     """获取当前提供商的模型列表和默认模型"""
     try:
-        current_provider = config_manager.provider_manager.get_current_provider_name()
-        models = config_manager.provider_manager.get_models_for_provider(current_provider)
+        # 获取实际可用的提供商，而不是配置中的当前提供商
+        available_providers, current_provider_display = get_available_providers()
+        
+        # 转换显示名称为键
+        provider_map = {
+            'DeepSeek': 'deepseek',
+            '阿里云通义千问': 'alicloud', 
+            '智谱AI GLM': 'zhipu',
+            'Google Gemini': 'gemini',
+            'OpenRouter': 'openrouter',
+            'LM Studio': 'lmstudio',
+            'Claude': 'claude',
+            'Grok': 'grok'
+        }
+        
+        current_provider_key = provider_map.get(current_provider_display, 'deepseek')
+        models = config_manager.provider_manager.get_models_for_provider(current_provider_key)
         if models:
             # 获取默认模型
-            default_model = config_manager.provider_manager.get_default_model(current_provider)
+            default_model = config_manager.provider_manager.get_default_model(current_provider_key)
             # 如果默认模型存在且在模型列表中，使用默认模型；否则使用第一个模型
             selected_model = default_model if default_model in models else models[0]
             return models, selected_model
@@ -850,7 +1181,7 @@ app_description = f"""
 
 **版本**: {version_info['version']} ({version_info['codename']}) | **发布日期**: {version_info['release_date']}
 
-支持7个AI提供商：**DeepSeek** | **阿里云** | **智谱AI** | **Google Gemini** | **OpenRouter** | **LM Studio** | **Claude**
+支持8个AI提供商：**DeepSeek** | **阿里云** | **智谱AI** | **Google Gemini** | **OpenRouter** | **LM Studio** | **Claude** | **Grok**
 
 📝 **功能特色：**
 - 🤖 多AI提供商智能切换
@@ -874,7 +1205,8 @@ def update_models_dropdown(provider_name):
             'Google Gemini': 'gemini',
             'OpenRouter': 'openrouter',
             'LM Studio': 'lmstudio',
-            'Claude': 'claude'
+            'Claude': 'claude',
+            'Grok': 'grok'
         }
         
         provider_key = provider_map.get(provider_name)
@@ -898,11 +1230,13 @@ def refresh_providers_and_status():
         available_providers, current_provider = get_available_providers()
         status_text = get_provider_status()
         
-        # 获取第一个可用提供商的模型
+        # 获取当前提供商的模型（使用正确的默认模型）
         if available_providers:
-            models = update_models_dropdown(available_providers[0])
+            # 使用当前提供商而不是第一个可用提供商
+            provider_to_use = current_provider if current_provider in available_providers else available_providers[0]
+            models = update_models_dropdown(provider_to_use)
             return (
-                gr.update(choices=available_providers, value=current_provider if current_provider in available_providers else available_providers[0]),
+                gr.update(choices=available_providers, value=provider_to_use),
                 models,
                 status_text
             )
@@ -934,7 +1268,8 @@ def get_provider_status():
                 'gemini': 'Google Gemini',
                 'openrouter': 'OpenRouter',
                 'lmstudio': 'LM Studio',
-                'claude': 'Claude'
+                'claude': 'Claude',
+                'grok': 'Grok'
             }
             
             name = provider_names.get(provider, provider)
@@ -984,7 +1319,7 @@ with gr.Blocks(
                         label="💡 小说提示词"
                     )
                     chapters_input = gr.Number(
-                        value=2, 
+                        value=20, 
                         minimum=1, 
                         maximum=500, 
                         label="📚 小说章节数"
@@ -1017,12 +1352,33 @@ with gr.Blocks(
                         outputs=[model_input]
                     )
                     
+                    # 页面加载时刷新模型列表以确保显示正确的默认模型
+                    def refresh_model_on_load():
+                        """页面加载时刷新模型列表"""
+                        try:
+                            # 使用实际可用的提供商，而不是配置中的当前提供商
+                            available_providers, current_provider_display = get_available_providers()
+                            return update_models_dropdown(current_provider_display)
+                        except Exception as e:
+                            logger.error(f"刷新模型列表失败: {e}")
+                            return gr.update(choices=["默认模型"], value="默认模型")
+                    
+                    # 页面加载时自动刷新
+                    app.load(refresh_model_on_load, outputs=[model_input])
+                    
                     # 生成按钮
-                    generate_btn = gr.Button(
-                        "🚀 开始创作小说", 
-                        variant="primary", 
-                        size="lg"
-                    )
+                    with gr.Row():
+                        generate_outline_btn = gr.Button(
+                            "📋 生成大纲", 
+                            variant="secondary", 
+                            size="lg"
+                        )
+                        generate_novel_btn = gr.Button(
+                            "🚀 开始创作小说", 
+                            variant="primary", 
+                            size="lg",
+                            visible=False
+                        )
                 
                 with gr.Column(scale=1):
                     # 状态显示
@@ -1037,6 +1393,42 @@ with gr.Blocks(
                             "🔄 刷新提供商", 
                             variant="secondary"
                         )
+            
+            # 大纲预览区域
+            with gr.Group(visible=False) as outline_preview:
+                gr.Markdown("## 📋 大纲预览")
+                with gr.Row():
+                    with gr.Column(scale=1):
+                        title_preview = gr.Textbox(
+                            label="📚 小说标题",
+                            interactive=False,
+                            lines=3
+                        )
+                        plot_preview = gr.Textbox(
+                            label="📖 情节梗概",
+                            interactive=False,
+                            lines=10
+                        )
+                    with gr.Column(scale=1):
+                        character_preview = gr.Textbox(
+                            label="👥 人物列表",
+                            interactive=False,
+                            lines=12
+                        )
+                
+                with gr.Row():
+                    story_outline_preview = gr.Textbox(
+                        label="📋 故事大纲",
+                        interactive=False,
+                        lines=10,
+                        max_lines=20
+                    )
+                    storyline_preview = gr.Textbox(
+                        label="📝 详细故事线",
+                        interactive=False,
+                        lines=10,
+                        max_lines=20
+                    )
             
             # 进度显示区域
             with gr.Row():
@@ -1094,10 +1486,19 @@ with gr.Blocks(
                 file_output = gr.File(label="📄 EPUB文件")
             
             # 绑定事件
-            generate_btn.click(
-                generate_output_with_progress,
+            generate_outline_btn.click(
+                generate_outline_with_progress,
                 inputs=[prompt_input, chapters_input, style_input, provider_input, model_input],
-                outputs=[generation_status, chapter_progress, generation_stats, generation_log, generation_process, cover_output, file_output]
+                outputs=[title_preview, plot_preview, character_preview, story_outline_preview, storyline_preview, generate_novel_btn, generation_status, chapter_progress, generation_stats, generation_log, generation_process]
+            ).then(
+                lambda: gr.update(visible=True),
+                outputs=[outline_preview]
+            )
+            
+            generate_novel_btn.click(
+                generate_novel_from_outline,
+                inputs=[title_preview, plot_preview, character_preview, story_outline_preview, storyline_preview, chapters_input, style_input, provider_input, model_input],
+                outputs=[cover_output, file_output, generation_status, chapter_progress, generation_stats]
             )
             
             refresh_status_btn.click(
@@ -1268,6 +1669,7 @@ with gr.Blocks(
             | **OpenRouter** | 模型选择丰富 | 各种开源模型 |
             | **LM Studio** | 本地部署，隐私安全 | 本地模型 |
             | **Claude** | 长文本处理优秀 | claude-3-sonnet |
+            | **Grok** | 实时信息，幽默风格 | grok-3-mini |
             
             ## 💡 创作技巧
             

@@ -22,6 +22,8 @@ class APICallMetrics:
     cost: float
     success: bool
     error_message: str = ""
+    error_code: int = 0
+    error_details: str = ""
 
 @dataclass
 class DefaultIdeasConfig:
@@ -58,7 +60,8 @@ class ConfigValidator:
             'zhipu': lambda key: len(key) > 20,
             'gemini': lambda key: len(key) > 20,
             'openrouter': lambda key: key.startswith('sk-') and len(key) > 20,
-            'claude': lambda key: key.startswith('sk-') and len(key) > 20
+            'claude': lambda key: key.startswith('sk-') and len(key) > 20,
+            'grok': lambda key: key.startswith('xai-') and len(key) > 20
         }
         
         if provider_name in validation_rules:
@@ -120,7 +123,7 @@ class MonitoringManager:
     
     def record_api_call(self, provider: str, model: str, tokens_used: int, 
                        response_time: float, cost: float, success: bool, 
-                       error_message: str = ""):
+                       error_message: str = "", error_code: int = 0, error_details: str = ""):
         """记录API调用"""
         metric = APICallMetrics(
             timestamp=time.time(),
@@ -130,7 +133,9 @@ class MonitoringManager:
             response_time=response_time,
             cost=cost,
             success=success,
-            error_message=error_message
+            error_message=error_message,
+            error_code=error_code,
+            error_details=error_details
         )
         self.metrics.append(metric)
         self.save_metrics()
@@ -192,6 +197,27 @@ class MonitoringManager:
             'average_response_time': avg_response_time,
             'provider_stats': provider_stats
         }
+    
+    def get_recent_errors(self, hours: int = 24, limit: int = 10) -> List[Dict]:
+        """获取最近的错误信息"""
+        cutoff_time = time.time() - (hours * 3600)
+        recent_errors = [
+            {
+                'timestamp': m.timestamp,
+                'provider': m.provider,
+                'model': m.model,
+                'error_message': m.error_message,
+                'error_code': m.error_code,
+                'error_details': m.error_details,
+                'response_time': m.response_time
+            }
+            for m in self.metrics 
+            if m.timestamp > cutoff_time and not m.success
+        ]
+        
+        # 按时间倒序排列，返回最新的错误
+        recent_errors.sort(key=lambda x: x['timestamp'], reverse=True)
+        return recent_errors[:limit]
 
 class CostTracker:
     """成本追踪器"""
@@ -222,6 +248,15 @@ class CostTracker:
         'claude': {
             'claude-3-sonnet-20240229': {'input': 0.003, 'output': 0.015},
             'claude-3-haiku-20240307': {'input': 0.00025, 'output': 0.00125}
+        },
+        'grok': {
+            'grok-3-mini': {'input': 0.0015, 'output': 0.0075},
+            'grok-3': {'input': 0.0020, 'output': 0.0100},
+            'grok-beta': {'input': 0.005, 'output': 0.015},
+            'grok-vision-beta': {'input': 0.01, 'output': 0.03},
+            'grok-2-1212': {'input': 0.002, 'output': 0.01},
+            'grok-2-vision-1212': {'input': 0.006, 'output': 0.02},
+            'default': {'input': 0.0015, 'output': 0.0075}
         }
     }
     
@@ -393,6 +428,10 @@ class EnhancedConfigManager:
             # 记录失败的调用
             response_time = time.time() - start_time
             if self.system_config.enable_monitoring:
+                # 尝试从异常中提取详细错误信息
+                error_code = getattr(e, 'error_code', 0)
+                error_details = getattr(e, 'error_details', '')
+                
                 self.monitoring_manager.record_api_call(
                     provider=provider_name,
                     model=model or "unknown",
@@ -400,13 +439,19 @@ class EnhancedConfigManager:
                     response_time=response_time,
                     cost=0,
                     success=False,
-                    error_message=str(e)
+                    error_message=str(e),
+                    error_code=error_code,
+                    error_details=error_details
                 )
             raise
     
     def get_monitoring_summary(self, hours: int = 24) -> Dict[str, Any]:
         """获取监控摘要"""
         return self.monitoring_manager.get_metrics_summary(hours)
+    
+    def get_recent_errors(self, hours: int = 24, limit: int = 10) -> List[Dict]:
+        """获取最近的错误信息"""
+        return self.monitoring_manager.get_recent_errors(hours, limit)
     
     def export_config(self, export_path: str):
         """导出配置"""

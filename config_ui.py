@@ -22,7 +22,8 @@ class ConfigUI:
             'gemini': 'Google Gemini',
             'openrouter': 'OpenRouter',
             'lmstudio': 'LM Studio',
-            'claude': 'Claude'
+            'claude': 'Claude',
+            'grok': 'Grok'
         }
     
     def create_provider_config_tab(self) -> gr.Tab:
@@ -470,7 +471,7 @@ class ConfigUI:
                 with gr.Column():
                     # 提供商过滤
                     provider_filter = gr.Dropdown(
-                        choices=["全部", "OpenAI", "Google", "Qwen", "DeepSeek", "Grok"],
+                        choices=["全部", "OpenAI", "Google", "Qwen", "DeepSeek", "Grok", "Anthropic"],
                         value="全部",
                         label="按提供商过滤"
                     )

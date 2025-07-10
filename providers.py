@@ -93,27 +93,75 @@ class DeepSeekProvider(AIProvider):
         if not self.config.api_key or self.config.api_key.strip() == "":
             return False
         try:
-            models = self.get_models()
-            return len(models) > 0
-        except:
-            return False
-    
-    def create_completion(self, messages: List[Dict], model: str, **kwargs) -> Dict:
-        try:
+            # 测试简单的API调用来验证API密钥
             response = requests.post(
                 f"{self.config.base_url}/chat/completions",
                 headers={"Authorization": f"Bearer {self.config.api_key}"},
                 json={
-                    "model": model,
-                    "messages": messages,
-                    **kwargs
-                }
+                    "model": "deepseek-chat",
+                    "messages": [{"role": "user", "content": "test"}],
+                    "max_tokens": 1
+                },
+                timeout=10
             )
-            response.raise_for_status()
-            return response.json()
-        except Exception as e:
-            logger.error(f"DeepSeek API调用失败: {e}")
-            raise
+            return response.status_code == 200
+        except:
+            return False
+    
+    def create_completion(self, messages: List[Dict], model: str, **kwargs) -> Dict:
+        max_retries = 2
+        retry_delay = 5  # 5秒延迟
+        
+        for attempt in range(max_retries + 1):  # 总共尝试3次（原始调用 + 2次重试）
+            try:
+                if attempt > 0:
+                    logger.info(f"DeepSeek API 第{attempt}次重试...")
+                
+                response = requests.post(
+                    f"{self.config.base_url}/chat/completions",
+                    headers={"Authorization": f"Bearer {self.config.api_key}"},
+                    json={
+                        "model": model,
+                        "messages": messages,
+                        **kwargs
+                    },
+                    timeout=60
+                )
+                
+                # 处理特定的HTTP状态码错误
+                if response.status_code in [403, 429, 500, 502, 503, 504]:
+                    error_msg = f"DeepSeek API返回{response.status_code}错误"
+                    if attempt < max_retries:
+                        logger.warning(f"{error_msg} 将在{retry_delay}秒后重试...")
+                        time.sleep(retry_delay)
+                        continue
+                    else:
+                        logger.error(f"DeepSeek API {response.status_code}错误重试{max_retries}次后仍然失败，程序停止")
+                        raise ValueError(f"{error_msg} 已重试{max_retries}次，程序停止。")
+                
+                response.raise_for_status()
+                if attempt > 0:
+                    logger.info(f"DeepSeek API 第{attempt}次重试成功")
+                return response.json()
+                
+            except requests.exceptions.RequestException as e:
+                error_msg = f"DeepSeek API网络请求失败: {e}"
+                if attempt < max_retries:
+                    logger.warning(f"{error_msg} 将在{retry_delay}秒后重试...")
+                    time.sleep(retry_delay)
+                    continue
+                else:
+                    logger.error(f"DeepSeek API网络错误重试{max_retries}次后仍然失败，程序停止")
+                    raise ValueError(f"DeepSeek API调用失败: {str(e)} 已重试{max_retries}次，程序停止。")
+            except Exception as e:
+                error_msg = f"DeepSeek API调用失败: {e}"
+                if attempt < max_retries:
+                    logger.warning(f"{error_msg} 将在{retry_delay}秒后重试...")
+                    time.sleep(retry_delay)
+                    continue
+                else:
+                    logger.error(f"DeepSeek API未知错误重试{max_retries}次后仍然失败，程序停止")
+                    raise ValueError(f"DeepSeek API调用失败: {str(e)} 已重试{max_retries}次，程序停止。")
 
 class AliCloudProvider(AIProvider):
     """阿里云通义千问提供商"""
@@ -268,8 +316,13 @@ class GeminiProvider(AIProvider):
         if not self.config.api_key or self.config.api_key.strip() == "":
             return False
         try:
-            models = self.get_models()
-            return len(models) > 0
+            # 测试Gemini API调用
+            response = requests.get(
+                f"{self.config.base_url}/models",
+                params={"key": self.config.api_key},
+                timeout=10
+            )
+            return response.status_code == 200
         except:
             return False
     
@@ -383,50 +436,185 @@ class OpenRouterProvider(AIProvider):
         except:
             return False
     
-    def create_completion(self, messages: List[Dict], model: str, **kwargs) -> Dict:
+    def verify_model_access(self, model: str) -> bool:
+        """验证模型是否可访问"""
         try:
-            # 验证API密钥格式
-            if not self.config.api_key or len(self.config.api_key) < 10:
-                raise ValueError("OpenRouter API密钥无效。请在配置页面设置有效的API密钥。")
-            
-            # 设置推荐的headers
-            headers = {
-                "Authorization": f"Bearer {self.config.api_key}",
-                "Content-Type": "application/json"
-            }
-            
-            # 添加可选的应用标识headers
-            if hasattr(self, 'app_name'):
-                headers["X-Title"] = self.app_name
-            if hasattr(self, 'site_url'):
-                headers["HTTP-Referer"] = self.site_url
-            
-            response = requests.post(
-                f"{self.config.base_url}/chat/completions",
-                headers=headers,
-                json={
-                    "model": model,
-                    "messages": messages,
-                    **kwargs
-                },
-                timeout=60
-            )
-            
-            if response.status_code == 401:
-                raise ValueError("OpenRouter API密钥无效或已过期。请检查您的API密钥配置。")
-            elif response.status_code == 402:
-                raise ValueError("OpenRouter账户余额不足。请充值后重试。")
-            elif response.status_code == 429:
-                raise ValueError("OpenRouter API调用频率过高。请稍后重试。")
-            
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.RequestException as e:
-            logger.error(f"OpenRouter API网络请求失败: {e}")
-            raise ValueError(f"OpenRouter API调用失败: {str(e)}")
-        except Exception as e:
-            logger.error(f"OpenRouter API调用失败: {e}")
-            raise
+            available_models = self.get_models()
+            return model in available_models
+        except:
+            return False
+    
+    def create_completion(self, messages: List[Dict], model: str, **kwargs) -> Dict:
+        max_retries = 2
+        retry_delay = 5  # 5秒延迟
+        
+        for attempt in range(max_retries + 1):  # 总共尝试3次（原始调用 + 2次重试）
+            try:
+                # 验证API密钥格式
+                if not self.config.api_key or len(self.config.api_key) < 10:
+                    raise ValueError("OpenRouter API密钥无效。请在配置页面设置有效的API密钥。")
+                
+                # 验证模型可用性（仅第一次尝试时检查）
+                if attempt == 0 and not self.verify_model_access(model):
+                    logger.warning(f"模型 '{model}' 可能不在可用列表中")
+                    available_models = self.get_models()[:5]  # 显示前5个可用模型
+                    logger.info(f"可用模型示例: {', '.join(available_models)}")
+                
+                # 设置推荐的headers
+                headers = {
+                    "Authorization": f"Bearer {self.config.api_key}",
+                    "Content-Type": "application/json"
+                }
+                
+                # 添加可选的应用标识headers
+                if hasattr(self, 'app_name'):
+                    headers["X-Title"] = self.app_name
+                if hasattr(self, 'site_url'):
+                    headers["HTTP-Referer"] = self.site_url
+                
+                if attempt > 0:
+                    logger.info(f"OpenRouter API 第{attempt}次重试...")
+                
+                response = requests.post(
+                    f"{self.config.base_url}/chat/completions",
+                    headers=headers,
+                    json={
+                        "model": model,
+                        "messages": messages,
+                        **kwargs
+                    },
+                    timeout=60
+                )
+                
+                # 尝试解析错误响应的详细信息
+                error_details = ""
+                try:
+                    error_response = response.json()
+                    if 'error' in error_response:
+                        error_details = f" 详细信息: {error_response['error']}"
+                        if 'metadata' in error_response:
+                            metadata = error_response['metadata']
+                            if 'reasons' in metadata:
+                                error_details += f" 原因: {', '.join(metadata['reasons'])}"
+                            if 'flagged_input' in metadata:
+                                error_details += f" 被标记的输入: {metadata['flagged_input'][:100]}..."
+                except:
+                    pass
+                
+                if response.status_code == 400:
+                    error_msg = f"OpenRouter请求参数错误{error_details}。请检查请求格式和参数。"
+                    logger.error(error_msg)
+                    raise ValueError(error_msg)
+                elif response.status_code == 401:
+                    error_msg = f"OpenRouter API密钥无效或已过期{error_details}。请检查您的API密钥配置。"
+                    logger.error(error_msg)
+                    raise ValueError(error_msg)
+                elif response.status_code == 402:
+                    error_msg = f"OpenRouter账户余额不足{error_details}。请充值后重试。"
+                    logger.error(error_msg)
+                    raise ValueError(error_msg)
+                elif response.status_code == 403:
+                    error_msg = f"OpenRouter内容审核被拒绝{error_details}。模型'{model}'要求内容审核，您的输入被标记。请修改输入内容。"
+                    if attempt < max_retries:
+                        logger.warning(f"{error_msg} 将在{retry_delay}秒后重试...")
+                        time.sleep(retry_delay)
+                        continue
+                    else:
+                        logger.error(f"OpenRouter API 403错误重试{max_retries}次后仍然失败，程序停止")
+                        raise ValueError(f"{error_msg} 已重试{max_retries}次，程序停止。")
+                elif response.status_code == 408:
+                    error_msg = f"OpenRouter请求超时{error_details}。请求处理时间过长。"
+                    if attempt < max_retries:
+                        logger.warning(f"{error_msg} 将在{retry_delay}秒后重试...")
+                        time.sleep(retry_delay)
+                        continue
+                    else:
+                        logger.error(f"OpenRouter API 408错误重试{max_retries}次后仍然失败，程序停止")
+                        raise ValueError(f"{error_msg} 已重试{max_retries}次，程序停止。")
+                elif response.status_code == 429:
+                    error_msg = f"OpenRouter API调用频率过高{error_details}。已超过速率限制。"
+                    if attempt < max_retries:
+                        logger.warning(f"{error_msg} 将在{retry_delay}秒后重试...")
+                        time.sleep(retry_delay)
+                        continue
+                    else:
+                        logger.error(f"OpenRouter API 429错误重试{max_retries}次后仍然失败，程序停止")
+                        raise ValueError(f"{error_msg} 已重试{max_retries}次，程序停止。")
+                elif response.status_code == 502:
+                    error_msg = f"OpenRouter网关错误{error_details}。所选模型'{model}'可能已宕机或响应无效。"
+                    if attempt < max_retries:
+                        logger.warning(f"{error_msg} 将在{retry_delay}秒后重试...")
+                        time.sleep(retry_delay)
+                        continue
+                    else:
+                        logger.error(f"OpenRouter API 502错误重试{max_retries}次后仍然失败，程序停止")
+                        raise ValueError(f"{error_msg} 建议尝试其他模型。已重试{max_retries}次，程序停止。")
+                elif response.status_code == 503:
+                    error_msg = f"OpenRouter服务不可用{error_details}。没有可用的模型提供商满足路由要求。"
+                    if attempt < max_retries:
+                        logger.warning(f"{error_msg} 将在{retry_delay}秒后重试...")
+                        time.sleep(retry_delay)
+                        continue
+                    else:
+                        logger.error(f"OpenRouter API 503错误重试{max_retries}次后仍然失败，程序停止")
+                        raise ValueError(f"{error_msg} 建议调整模型选择。已重试{max_retries}次，程序停止。")
+                
+                response.raise_for_status()
+                if attempt > 0:
+                    logger.info(f"OpenRouter API 第{attempt}次重试成功")
+                return response.json()
+                
+            except requests.exceptions.RequestException as e:
+                error_msg = f"OpenRouter API网络请求失败: {e}"
+                
+                # 创建增强的异常，包含详细信息
+                enhanced_exception = ValueError(f"OpenRouter API调用失败: {str(e)}")
+                if hasattr(e, 'response') and e.response is not None:
+                    enhanced_exception.error_code = getattr(e.response, 'status_code', 0)
+                    try:
+                        enhanced_exception.error_details = e.response.text
+                    except:
+                        enhanced_exception.error_details = ""
+                else:
+                    enhanced_exception.error_code = 0
+                    enhanced_exception.error_details = ""
+                
+                if attempt < max_retries:
+                    logger.warning(f"{error_msg} 将在{retry_delay}秒后重试...")
+                    time.sleep(retry_delay)
+                    continue
+                else:
+                    logger.error(f"OpenRouter API网络错误重试{max_retries}次后仍然失败，程序停止")
+                    enhanced_exception = ValueError(f"OpenRouter API调用失败: {str(e)} 已重试{max_retries}次，程序停止。")
+                    enhanced_exception.error_code = getattr(e, 'response', {}).get('status_code', 0) if hasattr(e, 'response') else 0
+                    enhanced_exception.error_details = getattr(e, 'response', {}).get('text', '') if hasattr(e, 'response') else ''
+                    raise enhanced_exception
+            except ValueError as e:
+                # ValueError通常是配置错误，不需要重试
+                # 确保包含错误详细信息
+                if not hasattr(e, 'error_code'):
+                    e.error_code = 0
+                if not hasattr(e, 'error_details'):
+                    e.error_details = ""
+                raise e
+            except Exception as e:
+                error_msg = f"OpenRouter API调用失败: {e}"
+                
+                # 创建增强的异常
+                enhanced_exception = ValueError(f"OpenRouter API调用失败: {str(e)}")
+                enhanced_exception.error_code = 0
+                enhanced_exception.error_details = ""
+                
+                if attempt < max_retries:
+                    logger.warning(f"{error_msg} 将在{retry_delay}秒后重试...")
+                    time.sleep(retry_delay)
+                    continue
+                else:
+                    logger.error(f"OpenRouter API未知错误重试{max_retries}次后仍然失败，程序停止")
+                    enhanced_exception = ValueError(f"OpenRouter API调用失败: {str(e)} 已重试{max_retries}次，程序停止。")
+                    enhanced_exception.error_code = 0
+                    enhanced_exception.error_details = str(e)
+                    raise enhanced_exception
 
 class LMStudioProvider(AIProvider):
     """LM Studio本地提供商"""
@@ -478,6 +666,201 @@ class LMStudioProvider(AIProvider):
             logger.error(f"LM Studio API调用失败: {e}")
             raise
 
+class GrokProvider(AIProvider):
+    """Grok (x.ai) 提供商"""
+    
+    def __init__(self, config: ProviderConfig):
+        super().__init__(config)
+        self.config.base_url = self.config.base_url or "https://api.x.ai/v1"
+    
+    def get_models(self) -> List[str]:
+        if not self._should_refresh_cache() and self.models_cache:
+            return self.models_cache
+        
+        # 如果没有API密钥，直接返回默认模型
+        if not self.config.api_key or self.config.api_key.strip() == "":
+            logger.info("Grok API密钥未设置，使用默认模型列表")
+            default_models = [
+                "grok-3-mini", "grok-3",
+                "grok-beta", "grok-vision-beta", 
+                "grok-2-1212", "grok-2-vision-1212",
+                "grok-2-public", "grok-2-vision-public"
+            ]
+            self._update_cache(default_models)
+            return default_models
+            
+        try:
+            response = requests.get(
+                f"{self.config.base_url}/models",
+                headers={"Authorization": f"Bearer {self.config.api_key}"},
+                timeout=10
+            )
+            response.raise_for_status()
+            data = response.json()
+            models = [model["id"] for model in data.get("data", [])]
+            
+            # Grok API可能返回空列表，但实际支持这些模型
+            if not models:
+                logger.info("Grok API返回空模型列表，使用已知可用模型")
+                default_models = [
+                    "grok-3-mini", "grok-3",
+                    "grok-beta", "grok-vision-beta", 
+                    "grok-2-1212", "grok-2-vision-1212",
+                    "grok-2-public", "grok-2-vision-public"
+                ]
+                self._update_cache(default_models)
+                return default_models
+            
+            self._update_cache(models)
+            logger.info(f"Grok获取到 {len(models)} 个真实模型")
+            return models
+        except Exception as e:
+            logger.warning(f"Grok获取模型列表失败，使用默认模型: {e}")
+            # 使用已知的Grok模型
+            default_models = [
+                "grok-3-mini", "grok-3",
+                "grok-beta", "grok-vision-beta", 
+                "grok-2-1212", "grok-2-vision-1212",
+                "grok-2-public", "grok-2-vision-public"
+            ]
+            self._update_cache(default_models)
+            return default_models
+    
+    def test_connection(self) -> bool:
+        if not self.config.api_key or self.config.api_key.strip() == "":
+            return False
+        try:
+            # 测试简单的API调用
+            response = requests.get(
+                f"{self.config.base_url}/models",
+                headers={"Authorization": f"Bearer {self.config.api_key}"},
+                timeout=10
+            )
+            # 如果API返回200状态码，即使没有模型列表也表示连接成功
+            return response.status_code == 200
+        except:
+            return False
+    
+    def create_completion(self, messages: List[Dict], model: str, **kwargs) -> Dict:
+        max_retries = 2
+        retry_delay = 5  # 5秒延迟
+        
+        for attempt in range(max_retries + 1):  # 总共尝试3次
+            try:
+                if attempt > 0:
+                    logger.info(f"Grok API 第{attempt}次重试...")
+                
+                response = requests.post(
+                    f"{self.config.base_url}/chat/completions",
+                    headers={"Authorization": f"Bearer {self.config.api_key}"},
+                    json={
+                        "model": model,
+                        "messages": messages,
+                        **kwargs
+                    },
+                    timeout=120  # Grok可能需要更长时间
+                )
+                
+                # 尝试提取详细的错误信息
+                error_details = ""
+                if not response.ok:
+                    try:
+                        error_data = response.json()
+                        error_details = f" - {error_data.get('error', {}).get('message', '')}"
+                    except:
+                        error_details = f" - HTTP {response.status_code}"
+                
+                # 处理特定的HTTP状态码错误
+                if response.status_code == 400:
+                    error_msg = f"Grok请求格式错误{error_details}。请检查模型名称和参数格式。"
+                    logger.error(error_msg)
+                    raise ValueError(error_msg)
+                elif response.status_code == 401:
+                    error_msg = f"Grok API密钥无效{error_details}。请检查API密钥是否正确。"
+                    logger.error(error_msg)
+                    raise ValueError(error_msg)
+                elif response.status_code == 402:
+                    error_msg = f"Grok账户余额不足{error_details}。请充值后重试。"
+                    logger.error(error_msg)
+                    raise ValueError(error_msg)
+                elif response.status_code == 403:
+                    error_msg = f"Grok内容审核被拒绝{error_details}。模型要求内容审核，您的输入被标记。请修改输入内容。"
+                    if attempt < max_retries:
+                        logger.warning(f"{error_msg} 将在{retry_delay}秒后重试...")
+                        time.sleep(retry_delay)
+                        continue
+                    else:
+                        logger.error(f"Grok 403错误重试{max_retries}次后仍然失败，程序停止")
+                        raise ValueError(f"{error_msg} 已重试{max_retries}次，程序停止。")
+                elif response.status_code == 408:
+                    error_msg = f"Grok请求超时{error_details}。"
+                    if attempt < max_retries:
+                        logger.warning(f"{error_msg} 将在{retry_delay}秒后重试...")
+                        time.sleep(retry_delay)
+                        continue
+                    else:
+                        logger.error(f"Grok 408错误重试{max_retries}次后仍然失败，程序停止")
+                        raise ValueError(f"{error_msg} 已重试{max_retries}次，程序停止。")
+                elif response.status_code == 429:
+                    error_msg = f"Grok请求频率限制{error_details}。API调用过于频繁。"
+                    if attempt < max_retries:
+                        logger.warning(f"{error_msg} 将在{retry_delay}秒后重试...")
+                        time.sleep(retry_delay)
+                        continue
+                    else:
+                        logger.error(f"Grok 429错误重试{max_retries}次后仍然失败，程序停止")
+                        raise ValueError(f"{error_msg} 已重试{max_retries}次，程序停止。")
+                elif response.status_code == 502:
+                    error_msg = f"Grok服务器网关错误{error_details}。"
+                    if attempt < max_retries:
+                        logger.warning(f"{error_msg} 将在{retry_delay}秒后重试...")
+                        time.sleep(retry_delay)
+                        continue
+                    else:
+                        logger.error(f"Grok 502错误重试{max_retries}次后仍然失败，程序停止")
+                        raise ValueError(f"{error_msg} 已重试{max_retries}次，程序停止。")
+                elif response.status_code == 503:
+                    error_msg = f"Grok服务暂时不可用{error_details}。"
+                    if attempt < max_retries:
+                        logger.warning(f"{error_msg} 将在{retry_delay}秒后重试...")
+                        time.sleep(retry_delay)
+                        continue
+                    else:
+                        logger.error(f"Grok 503错误重试{max_retries}次后仍然失败，程序停止")
+                        raise ValueError(f"{error_msg} 已重试{max_retries}次，程序停止。")
+                
+                response.raise_for_status()
+                if attempt > 0:
+                    logger.info(f"Grok API 第{attempt}次重试成功")
+                return response.json()
+                
+            except requests.exceptions.RequestException as e:
+                error_msg = f"Grok API网络请求失败: {e}"
+                if attempt < max_retries:
+                    logger.warning(f"{error_msg} 将在{retry_delay}秒后重试...")
+                    time.sleep(retry_delay)
+                    continue
+                else:
+                    logger.error(f"Grok API网络错误重试{max_retries}次后仍然失败，程序停止")
+                    # 创建增强的异常对象
+                    enhanced_exception = ValueError(f"Grok API调用失败: {str(e)} 已重试{max_retries}次，程序停止。")
+                    enhanced_exception.error_code = 0
+                    enhanced_exception.error_details = str(e)
+                    raise enhanced_exception
+            except Exception as e:
+                error_msg = f"Grok API调用失败: {e}"
+                if attempt < max_retries:
+                    logger.warning(f"{error_msg} 将在{retry_delay}秒后重试...")
+                    time.sleep(retry_delay)
+                    continue
+                else:
+                    logger.error(f"Grok API未知错误重试{max_retries}次后仍然失败，程序停止")
+                    # 创建增强的异常对象
+                    enhanced_exception = ValueError(f"Grok API调用失败: {str(e)} 已重试{max_retries}次，程序停止。")
+                    enhanced_exception.error_code = 0
+                    enhanced_exception.error_details = str(e)
+                    raise enhanced_exception
+
 class ClaudeProvider(AIProvider):
     """Claude提供商"""
     
@@ -504,8 +887,22 @@ class ClaudeProvider(AIProvider):
         if not self.config.api_key or self.config.api_key.strip() == "":
             return False
         try:
-            models = self.get_models()
-            return len(models) > 0
+            # 测试Claude API调用（使用一个简单的请求）
+            response = requests.post(
+                f"{self.config.base_url}/messages",
+                headers={
+                    "x-api-key": self.config.api_key,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json"
+                },
+                json={
+                    "model": "claude-3-haiku-20240307",
+                    "messages": [{"role": "user", "content": "test"}],
+                    "max_tokens": 1
+                },
+                timeout=10
+            )
+            return response.status_code == 200
         except:
             return False
     
@@ -567,7 +964,8 @@ class ProviderManager:
             'gemini': ProviderConfig(name='Google Gemini'),
             'openrouter': ProviderConfig(name='OpenRouter'),
             'lmstudio': ProviderConfig(name='LM Studio'),
-            'claude': ProviderConfig(name='Claude')
+            'claude': ProviderConfig(name='Claude'),
+            'grok': ProviderConfig(name='Grok')
         }
         
         for name, config in default_providers.items():
@@ -585,7 +983,8 @@ class ProviderManager:
             'gemini': GeminiProvider,
             'openrouter': OpenRouterProvider,
             'lmstudio': LMStudioProvider,
-            'claude': ClaudeProvider
+            'claude': ClaudeProvider,
+            'grok': GrokProvider
         }
         
         if name in provider_classes:
@@ -609,6 +1008,10 @@ class ProviderManager:
             logger.info(f"切换到提供商: {name}")
         else:
             raise ValueError(f"提供商 '{name}' 不存在")
+    
+    def set_provider(self, name: str):
+        """设置提供商（向后兼容的别名）"""
+        return self.switch_provider(name)
     
     def update_provider_config(self, name: str, **kwargs):
         """更新提供商配置"""
@@ -658,7 +1061,10 @@ class ProviderManager:
     def get_models_for_provider(self, provider_name: str) -> List[str]:
         """获取指定提供商的模型列表"""
         if provider_name in self.providers:
-            return self.providers[provider_name].get_models()
+            provider = self.providers[provider_name]
+            # 强制刷新缓存以确保获取最新模型列表
+            provider.last_update = 0
+            return provider.get_models()
         return []
     
     def get_current_provider_name(self) -> str:

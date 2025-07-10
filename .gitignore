@@ -66,6 +66,7 @@ Thumbs.db
 story/
 novels/
 books/
+output/
 *.epub
 *.pdf
 
